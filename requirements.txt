@@ -36,6 +36,7 @@ idna==2.7
 iso8601==0.1.12
 itsdangerous==0.24
 Jinja2==2.8.1
+kubernetes==7.0.0
 lockfile==0.12.2
 lxml==3.8.0
 Mako==1.0.7
