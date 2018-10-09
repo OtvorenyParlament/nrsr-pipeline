@@ -5,6 +5,7 @@ NRSR.sk pipeline
 from datetime import datetime, timedelta
 
 from airflow import DAG
+from airflow.operators import NRSRScrapyOperator
 from airflow.operators.python_operator import PythonOperator
 
 
@@ -15,8 +16,11 @@ default_args = {
     'email_on_retry': False,
     'retries': 2,
     'retry_delay': timedelta(minutes=1),
-    'start_date': datetime(2018, 11, 30)
+    'start_date': datetime(2018, 10, 9)
 }
+
+DAILY = True
+PERIOD = 7
 
 dag = DAG('NRSRPipeline', default_args=default_args)
 
@@ -26,69 +30,90 @@ def dummy():
 
 
 # extract data from nrsr.sk
-extract_clubs = PythonOperator(
-    task_id='extract_clubs',
-    python_callable=dummy,
-    dag=dag)
-
-
-extract_members = PythonOperator(
+extract_members = NRSRScrapyOperator(
     task_id='extract_members',
-    python_callable=dummy,
+    spider='members',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag)
 
-extract_member_changes = PythonOperator(
+extract_member_changes = NRSRScrapyOperator(
     task_id='extract_member_changes',
-    python_callable=dummy,
+    spider='member_changes',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_missing_members = PythonOperator(
+extract_missing_members = NRSRScrapyOperator(
     task_id='extract_missing_members',
-    python_callable=dummy,
+    spider='missing_members',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_sessions = PythonOperator(
+extract_sessions = NRSRScrapyOperator(
     task_id='extract_sessions',
-    python_callable=dummy,
+    spider='sessions',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_presses = PythonOperator(
+extract_presses = NRSRScrapyOperator(
     task_id='extract_presses',
-    python_callable=dummy,
+    spider='presses',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_votings = PythonOperator(
+extract_clubs = NRSRScrapyOperator(
+    task_id='extract_clubs',
+    spider='clubs',
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag)
+
+extract_votings = NRSRScrapyOperator(
     task_id='extract_votings',
-    python_callable=dummy,
+    spider='votings',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
 
-extract_hour_of_questions = PythonOperator(
+extract_hour_of_questions = NRSRScrapyOperator(
     task_id='extract_hour_of_questions',
-    python_callable=dummy,
+    spider='hqa',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_debate_appearances = PythonOperator(
+extract_debate_appearances = NRSRScrapyOperator(
     task_id='extract_debate_appearances',
-    python_callable=dummy,
+    spider='debate_appearances',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_draft_law = PythonOperator(
+extract_draft_law = NRSRScrapyOperator(
     task_id='extract_draft_law',
-    python_callable=dummy,
+    spider='draft_law',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
-extract_interpelations = PythonOperator(
+extract_interpelations = NRSRScrapyOperator(
     task_id='extract_interpelations',
-    python_callable=dummy,
+    spider='interpelations',
+    daily=DAILY,
+    period=PERIOD,
     dag=dag
 )
 
@@ -188,7 +213,7 @@ transform_presses.set_upstream(extract_presses)
 load_presses.set_upstream(transform_presses)
 
 
-extract_clubs.set_upstream(extract_sessions)
+extract_clubs.set_upstream(extract_presses)
 transform_clubs.set_upstream(extract_clubs)
 transform_clubs.set_upstream(load_members)
 load_clubs.set_upstream(transform_clubs)
