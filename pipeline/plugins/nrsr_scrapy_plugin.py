@@ -11,7 +11,9 @@ from airflow.plugins_manager import AirflowPlugin
 
 
 class NRSRScrapyOperator(BaseOperator):
-    """Scrapy Operator"""
+    """
+    Scrapy Operator
+    """
 
     def __init__(self, spider, period, daily, *args, **kwargs):
         """
