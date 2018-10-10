@@ -12,7 +12,7 @@ import pandas
 import psycopg2
 from pymongo import MongoClient
 
-from airflow.models import BaseOperator, Variable
+from airflow.models import BaseOperator
 from airflow.plugins_manager import AirflowPlugin
 
 
@@ -21,12 +21,13 @@ class NRSRTransformOperator(BaseOperator):
     Data Transform
     """
 
-    def __init__(self, data_type, period, daily, postgres_url, mongo_settings, *args, **kwargs):
+    def __init__(self, data_type, period, daily, postgres_url, mongo_settings, file_dest, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.data_type = data_type
         self.period = period
         self.daily = daily
+        self.file_dest = file_dest
 
         mongo_client = MongoClient(mongo_settings['uri'])
         mongo_db = mongo_client[mongo_settings['db']]
@@ -46,8 +47,6 @@ class NRSRTransformOperator(BaseOperator):
             filter_dict['_id'] = {'$gte': ObjectId.from_datetime(now)}
 
         docs = self.mongo_col.find(filter_dict, fields_dict)
-        print("filter")
-        print(filter_dict)
         return docs
 
 
@@ -78,8 +77,6 @@ class NRSRTransformOperator(BaseOperator):
         # TODO(Jozef): Monitor memory consumption of this
         docs = list(self._get_documents(fields_dict))
         member_frame = pandas.DataFrame(docs)
-        print(len(docs))
-        print("\n\n\n\n\n\n\n\n\n\n\n\n")
         
         pg_conn = psycopg2.connect(self.postgres_url)
         pg_cursor = pg_conn.cursor()
@@ -147,13 +144,16 @@ class NRSRTransformOperator(BaseOperator):
             ['external_id', 'period_num', 'forename', 'surname', 'title', 'email',
             'born', 'nationality', 'residence_id', 'external_photo_url', 'stood_for_party']]
         
-        member_frame.to_csv('/tmp/members.csv')
-        
+        return member_frame
 
     def execute(self, context):
         """Operator Executor"""
+        data_frame = None
         if self.data_type == 'member':
-            self.transform_members()
+            data_frame = self.transform_members()
+        
+        if data_frame:
+            data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))
 
 
 class NRSRTransformPlugin(AirflowPlugin):

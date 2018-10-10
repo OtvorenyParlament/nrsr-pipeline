@@ -6,7 +6,7 @@ import logging
 import os
 from subprocess import CalledProcessError, check_call
 
-from airflow.models import BaseOperator, Variable
+from airflow.models import BaseOperator
 from airflow.plugins_manager import AirflowPlugin
 
 
@@ -15,14 +15,14 @@ class NRSRScrapyOperator(BaseOperator):
     Scrapy Operator
     """
 
-    def __init__(self, spider, period, daily, *args, **kwargs):
+    def __init__(self, spider, scrapy_home, period, daily, *args, **kwargs):
         """
         if you need only particular period, put period=int
         if you want full crawl (a lot of time and data), make full=True
         """
         super().__init__(*args, **kwargs)
 
-        self.scrapy_home = Variable.get('scrapy_home')
+        self.scrapy_home = scrapy_home
         self.scrapy_bin = '{}/env/bin/scrapy'.format(self.scrapy_home)
 
         self.spider = spider
