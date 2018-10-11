@@ -5,7 +5,6 @@ Data Transform Plugin
 from datetime import datetime, timedelta
 import logging
 import os
-from subprocess import CalledProcessError, check_call
 
 from bson.objectid import ObjectId
 import pandas
@@ -142,7 +141,7 @@ class NRSRTransformOperator(BaseOperator):
         member_frame.rename({'id': 'residence_id'}, axis='columns', inplace=True)
         member_frame = member_frame[
             ['external_id', 'period_num', 'forename', 'surname', 'title', 'email',
-            'born', 'nationality', 'residence_id', 'external_photo_url', 'stood_for_party']]
+            'born', 'nationality', 'residence_id', 'external_photo_url', 'stood_for_party', 'url']]
         
         return member_frame
 
@@ -152,7 +151,7 @@ class NRSRTransformOperator(BaseOperator):
         if self.data_type == 'member':
             data_frame = self.transform_members()
         
-        if data_frame:
+        if not data_frame.empty:
             data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))
 
 
