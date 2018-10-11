@@ -1,1 +1,2 @@
 export AIRFLOW_HOME=./pipeline
+source env/bin/activate
