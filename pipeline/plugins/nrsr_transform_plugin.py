@@ -76,6 +76,8 @@ class NRSRTransformOperator(BaseOperator):
         # TODO(Jozef): Monitor memory consumption of this
         docs = list(self._get_documents(fields_dict))
         member_frame = pandas.DataFrame(docs)
+        if member_frame.empty:
+            return member_frame
         
         pg_conn = psycopg2.connect(self.postgres_url)
         pg_cursor = pg_conn.cursor()
@@ -97,6 +99,9 @@ class NRSRTransformOperator(BaseOperator):
 
         # strip everything
         member_frame = member_frame.applymap(lambda x: x.strip() if type(x) is str else x)
+
+        print(member_frame)
+        # external photo url
         member_frame['external_photo_url'] = member_frame['image_urls'].map(lambda x: x[0])
 
         # fix villages
@@ -145,11 +150,53 @@ class NRSRTransformOperator(BaseOperator):
         
         return member_frame
 
+    def transform_member_changes(self):
+        """
+        Transform MP changes
+        """
+        fields_list = [
+            'external_id',
+            'date',
+            'period_num',
+            'change_type',
+            'change_reason'
+        ]
+        fields_dict = {x: 1 for x in fields_list}
+
+        # TODO(Jozef): Monitor memory consumption of this
+        docs = list(self._get_documents(fields_dict))
+        change_frame = pandas.DataFrame(docs)
+        if change_frame.empty:
+            return change_frame
+
+        change_frame.change_type.replace(
+            ["Mandát sa neuplatňuje"], 'doesnotapply', inplace=True)
+        change_frame.change_type.replace(
+            ["Mandát vykonávaný (aktívny poslanec)"], 'active', inplace=True)
+        change_frame.change_type.replace(
+            ["Mandát náhradníka zaniknutý"], 'substitutefolded', inplace=True)
+        change_frame.change_type.replace(
+            ["Mandát náhradníka vykonávaný"], 'substituteactive', inplace=True)
+        change_frame.change_type.replace(
+            ["Mandát náhradníka získaný"], 'substitutegained', inplace=True)
+        change_frame.change_type.replace(
+            ["Mandát zaniknutý"], 'folded', inplace=True)
+        change_frame.change_type.replace(
+            ["Mandát nadobudnutý vo voľbách"], 'gained', inplace=True)
+
+        change_frame['date'] = pandas.to_datetime(
+            change_frame['date'], format='%d. %m. %Y')
+
+        return change_frame
+
+
     def execute(self, context):
         """Operator Executor"""
         data_frame = None
         if self.data_type == 'member':
             data_frame = self.transform_members()
+        elif self.data_type == 'member_change':
+            data_frame = self.transform_member_changes()
         
         if not data_frame.empty:
             data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))
