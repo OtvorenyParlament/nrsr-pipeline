@@ -186,6 +186,7 @@ class NRSRTransformOperator(BaseOperator):
 
         change_frame['date'] = pandas.to_datetime(
             change_frame['date'], format='%d. %m. %Y')
+        change_frame = change_frame[['external_id', 'date', 'period_num', 'change_type', 'change_reason']]
 
         return change_frame
 
