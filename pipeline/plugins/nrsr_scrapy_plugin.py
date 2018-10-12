@@ -32,13 +32,17 @@ class NRSRScrapyOperator(BaseOperator):
     def execute(self, context):
         """Operator Executor"""
         shell_cmd = ['{} crawl {}'.format(self.scrapy_bin, self.spider)]
-        if self.daily:
-            shell_cmd.append('-a daily=true')
-        if self.period:
+        print("Daily: {}".format(self.daily))
+        print("Period: {}".format(self.period))
+        if self.daily is not None:
+            shell_cmd.append('-a daily={}'.format('true' if self.daily is True else 'false'))
+        if self.period is not None:
             shell_cmd.append('-a period={}'.format(self.period))
         wd = os.getcwd()
         os.chdir(self.scrapy_home)
-        check_call(shell_cmd, shell=True)
+        cmd_string = ' '.join(shell_cmd)
+        print("Executing command: {}".format(cmd_string))
+        check_call(cmd_string, shell=True)
         os.chdir(wd)
 
 
