@@ -190,6 +190,50 @@ class NRSRTransformOperator(BaseOperator):
 
         return change_frame
 
+    def transform_presses(self):
+        """
+        Transform Press data
+        """
+        fields_list = [
+            'title',
+            'num',
+            'group_num',
+            'period_num',
+            'press_type',
+            'date',
+            'attachments_urls',
+            'attachments_names',
+            'url'
+        ]
+
+        fields_dict = {x: 1 for x in fields_list}
+
+        # TODO(Jozef): Monitor memory consumption of this
+        docs = list(self._get_documents(fields_dict))
+        press_frame = pandas.DataFrame(docs)
+        if press_frame.empty:
+            return press_frame
+    
+        press_frame.press_type.replace(['Návrh zákona'], 'draftlaw', inplace=True)
+        press_frame.press_type.replace(['Iný typ'], 'other', inplace=True)
+        press_frame.press_type.replace(['Informácia'], 'information', inplace=True)
+        press_frame.press_type.replace(['Správa'], 'report', inplace=True)
+        press_frame.press_type.replace(['Petícia'], 'petition', inplace=True)
+        press_frame.press_type.replace(['Medzinárodná zmluva'], 'intag', inplace=True)
+        press_frame.rename({'num': 'press_num'}, axis='columns', inplace=True)
+
+        # TODO(add attachments)
+        press_frame = press_frame[[
+            'press_type', 'title', 'press_num', 'date', 'period_num', 'url']]
+        return press_frame
+
+
+    def transform_sessions(self):
+        """
+        Transform Session data
+        """
+        pass
+
 
     def execute(self, context):
         """Operator Executor"""
@@ -198,6 +242,10 @@ class NRSRTransformOperator(BaseOperator):
             data_frame = self.transform_members()
         elif self.data_type == 'member_change':
             data_frame = self.transform_member_changes()
+        elif self.data_type == 'press':
+            data_frame = self.transform_presses()
+        elif self.data_type == 'session':
+            data_frame = self.transform_sessions()
         
         if not data_frame.empty:
             data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))
