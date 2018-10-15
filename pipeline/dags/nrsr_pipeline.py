@@ -70,14 +70,14 @@ extract_presses = NRSRScrapyOperator(
     dag=dag
 )
 
-# extract_sessions = NRSRScrapyOperator(
-#     task_id='extract_sessions',
-#     spider='sessions',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag
-# )
+extract_sessions = NRSRScrapyOperator(
+    task_id='extract_sessions',
+    spider='sessions',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
 
 # extract_clubs = NRSRScrapyOperator(
 #     task_id='extract_clubs',
@@ -174,16 +174,16 @@ transform_presses = NRSRTransformOperator(
     dag=dag
 )
 
-# transform_sessions = NRSRTransformOperator(
-#     task_id='transform_sessions',
-#     data_type='session',
-#     period=PERIOD,
-#     daily=DAILY,
-#     postgres_url=POSTGRES_URL,
-#     mongo_settings=MONGO_SETTINGS,
-#     file_dest=TRANSFORMED_DST,
-#     dag=dag
-# )
+transform_sessions = NRSRTransformOperator(
+    task_id='transform_sessions',
+    data_type='session',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    file_dest=TRANSFORMED_DST,
+    dag=dag
+)
 
 # transform_votings = PythonOperator(
 #     task_id='transform_votings',
@@ -218,15 +218,19 @@ load_member_changes = NRSRLoadOperator(
 #     dag=dag
 # )
 
-# load_sessions = PythonOperator(
-#     task_id='load_sessions',
-#     python_callable=dummy,
-#     dag=dag
-# )
-
 load_presses = NRSRLoadOperator(
     task_id='load_presses',
     data_type='press',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    file_src=TRANSFORMED_DST,
+    dag=dag
+)
+
+load_sessions = NRSRLoadOperator(
+    task_id='load_sessions',
+    data_type='session',
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
@@ -256,9 +260,10 @@ extract_presses.set_upstream(extract_missing_members)
 transform_presses.set_upstream(extract_presses)
 load_presses.set_upstream(transform_presses)
 
-# extract_sessions.set_upstream(extract_missing_members)
-# transform_sessions.set_upstream(extract_sessions)
-# load_sessions.set_upstream(transform_sessions)
+extract_sessions.set_upstream(extract_presses)
+transform_sessions.set_upstream(extract_sessions)
+load_sessions.set_upstream(load_presses)
+load_sessions.set_upstream(transform_sessions)
 
 
 

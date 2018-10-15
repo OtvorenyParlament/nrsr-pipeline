@@ -5,6 +5,7 @@ Data Transform Plugin
 from datetime import datetime, timedelta
 import logging
 import os
+import re
 
 from bson.objectid import ObjectId
 import pandas
@@ -33,7 +34,7 @@ class NRSRTransformOperator(BaseOperator):
         self.mongo_col = mongo_db[mongo_settings['col']]
         self.postgres_url = postgres_url
 
-    def _get_documents(self, fields_dict):
+    def _get_documents(self, fields_dict, unwind=None, projection=None):
         """
         Get MongoDB Cursor
         """
@@ -45,7 +46,14 @@ class NRSRTransformOperator(BaseOperator):
             now = datetime.utcnow() - timedelta(hours=36)
             filter_dict['_id'] = {'$gte': ObjectId.from_datetime(now)}
 
-        docs = self.mongo_col.find(filter_dict, fields_dict)
+        if unwind and projection:
+            docs = self.mongo_col.aggregate([
+                {'$match': filter_dict},
+                unwind,
+                projection
+            ])
+        else:
+            docs = self.mongo_col.find(filter_dict, fields_dict)
         return docs
 
 
@@ -78,7 +86,7 @@ class NRSRTransformOperator(BaseOperator):
         member_frame = pandas.DataFrame(docs)
         if member_frame.empty:
             return member_frame
-        
+
         pg_conn = psycopg2.connect(self.postgres_url)
         pg_cursor = pg_conn.cursor()
         pg_cursor.execute(
@@ -92,7 +100,7 @@ class NRSRTransformOperator(BaseOperator):
         villages = pg_cursor.fetchall()
         if not villages:
             raise Exception("No Villages are imported")
-        
+
         village_frame = pandas.DataFrame(
             villages, columns=['id', 'village_name', 'district_name', 'region_name'])
 
@@ -100,7 +108,6 @@ class NRSRTransformOperator(BaseOperator):
         # strip everything
         member_frame = member_frame.applymap(lambda x: x.strip() if type(x) is str else x)
 
-        print(member_frame)
         # external photo url
         member_frame['external_photo_url'] = member_frame['image_urls'].map(lambda x: x[0])
 
@@ -147,7 +154,7 @@ class NRSRTransformOperator(BaseOperator):
         member_frame = member_frame[
             ['external_id', 'period_num', 'forename', 'surname', 'title', 'email',
             'born', 'nationality', 'residence_id', 'external_photo_url', 'stood_for_party', 'url']]
-        
+
         return member_frame
 
     def transform_member_changes(self):
@@ -213,7 +220,7 @@ class NRSRTransformOperator(BaseOperator):
         press_frame = pandas.DataFrame(docs)
         if press_frame.empty:
             return press_frame
-    
+
         press_frame.press_type.replace(['Návrh zákona'], 'draftlaw', inplace=True)
         press_frame.press_type.replace(['Iný typ'], 'other', inplace=True)
         press_frame.press_type.replace(['Informácia'], 'information', inplace=True)
@@ -234,7 +241,40 @@ class NRSRTransformOperator(BaseOperator):
         """
         Transform Session data
         """
-        pass
+        fields_dict = {}
+
+        # TODO(Jozef): Monitor memory consumption of this
+        unwind = {'$unwind': '$program_points'}
+        projection = {
+            '$project': {
+                '_id': 1,
+                'url': 1,
+                'period_num': 1,
+                'external_id': 1,
+                'name': 1,
+                'state': '$program_points.state',
+                'progpoint': '$program_points.progpoint',
+                'parlpress': '$program_points.parlpress',
+                'text': '$program_points.text'
+            }
+        }
+        docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
+
+        session_frame = pandas.DataFrame(docs)
+        if session_frame.empty:
+            return session_frame
+
+        session_frame['session_num'] = session_frame['name'].apply(
+            lambda x: ''.join(re.findall(r'\d+', x['name'][:15])), axis=1)
+        session_frame['progpoint'] = session_frame['progpoint'].apply(
+            lambda x: x.replace('.', ''))
+        # TODO(Jozef): Add attachments
+        session_frame = session_frame[[
+            'external_id', 'session_num', 'period_num', 'name', 'state',
+            'progpoint', 'parlpress', 'text', 'url'
+        ]]
+
+        return session_frame
 
 
     def execute(self, context):
@@ -248,13 +288,13 @@ class NRSRTransformOperator(BaseOperator):
             data_frame = self.transform_presses()
         elif self.data_type == 'session':
             data_frame = self.transform_sessions()
-        
+
         if not data_frame.empty:
             data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))
 
 
 class NRSRTransformPlugin(AirflowPlugin):
-    
+
     name = 'nrsr_transform_plugin'
     operators = [NRSRTransformOperator]
     hooks = []
