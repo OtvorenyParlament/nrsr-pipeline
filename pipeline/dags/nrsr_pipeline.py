@@ -61,18 +61,18 @@ extract_missing_members = NRSRScrapyOperator(
     dag=dag
 )
 
+extract_presses = NRSRScrapyOperator(
+    task_id='extract_presses',
+    spider='presses',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
+
 # extract_sessions = NRSRScrapyOperator(
 #     task_id='extract_sessions',
 #     spider='sessions',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag
-# )
-
-# extract_presses = NRSRScrapyOperator(
-#     task_id='extract_presses',
-#     spider='presses',
 #     scrapy_home=SCRAPY_HOME,
 #     daily=DAILY,
 #     period=PERIOD,
@@ -163,15 +163,25 @@ transform_member_changes = NRSRTransformOperator(
     dag=dag
 )
 
-# transform_presses = PythonOperator(
-#     task_id='transform_presses',
-#     python_callable=dummy,
-#     dag=dag
-# )
+transform_presses = NRSRTransformOperator(
+    task_id='transform_presses',
+    data_type='press',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    file_dest=TRANSFORMED_DST,
+    dag=dag
+)
 
-# transform_sessions = PythonOperator(
+# transform_sessions = NRSRTransformOperator(
 #     task_id='transform_sessions',
-#     python_callable=dummy,
+#     data_type='session',
+#     period=PERIOD,
+#     daily=DAILY,
+#     postgres_url=POSTGRES_URL,
+#     mongo_settings=MONGO_SETTINGS,
+#     file_dest=TRANSFORMED_DST,
 #     dag=dag
 # )
 
@@ -214,11 +224,15 @@ load_member_changes = NRSRLoadOperator(
 #     dag=dag
 # )
 
-# load_presses = PythonOperator(
-#     task_id='load_presses',
-#     python_callable=dummy,
-#     dag=dag
-# )
+load_presses = NRSRLoadOperator(
+    task_id='load_presses',
+    data_type='press',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    file_src=TRANSFORMED_DST,
+    dag=dag
+)
 
 # load_votings = PythonOperator(
 #     task_id='load_votings',
@@ -238,13 +252,15 @@ transform_member_changes.set_upstream(extract_member_changes)
 load_member_changes.set_upstream(transform_member_changes)
 load_member_changes.set_upstream(load_members)
 
+extract_presses.set_upstream(extract_missing_members)
+transform_presses.set_upstream(extract_presses)
+load_presses.set_upstream(transform_presses)
+
 # extract_sessions.set_upstream(extract_missing_members)
 # transform_sessions.set_upstream(extract_sessions)
 # load_sessions.set_upstream(transform_sessions)
 
-# extract_presses.set_upstream(extract_sessions)
-# transform_presses.set_upstream(extract_presses)
-# load_presses.set_upstream(transform_presses)
+
 
 
 # extract_clubs.set_upstream(extract_presses)

@@ -221,6 +221,8 @@ class NRSRTransformOperator(BaseOperator):
         press_frame.press_type.replace(['Petícia'], 'petition', inplace=True)
         press_frame.press_type.replace(['Medzinárodná zmluva'], 'intag', inplace=True)
         press_frame.rename({'num': 'press_num'}, axis='columns', inplace=True)
+        press_frame['date'] = pandas.to_datetime(
+            press_frame['date'], format='%d. %m. %Y')
 
         # TODO(add attachments)
         press_frame = press_frame[[

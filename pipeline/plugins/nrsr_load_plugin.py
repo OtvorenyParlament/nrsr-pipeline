@@ -110,7 +110,40 @@ class NRSRLoadOperator(BaseOperator):
             finally:
                 if pg_conn is not None:
                     pg_conn.close()
-                
+
+    def load_presses(self):
+        """
+        Load presses
+        """
+        if not self.data_frame.empty:
+            pg_conn = None
+            try:
+                pg_conn = psycopg2.connect(self.postgres_url)
+                pg_cursor = pg_conn.cursor()
+
+                for _, row in self.data_frame.iterrows():
+                    row['title'] = row['title'].replace("'", "''")
+                    pg_cursor.execute(
+                        """
+                        INSERT INTO parliament_press (press_type, title, press_num, "date", url, period_id)
+                        VALUES (
+                            '{press_type}',
+                            '{title}',
+                            {press_num},
+                            '{date}',
+                            '{url}',
+                            (SELECT id FROM parliament_period WHERE period_num = {period_num})
+                        )
+                        ON CONFLICT (press_num, period_id) DO NOTHING;
+                        """.format(**row)
+                    )
+                pg_conn.commit()
+            except (Exception, psycopg2.DatabaseError) as error:
+                raise error
+            finally:
+                if pg_conn is not None:
+                    pg_conn.close()
+
 
     def execute(self, context):
         """Operator Executor"""
@@ -119,6 +152,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_members()
         elif self.data_type == 'member_change':
             self.load_member_changes()
+        elif self.data_type == 'press':
+            self.load_presses()
 
 
 class NRSRLoadPlugin(AirflowPlugin):
