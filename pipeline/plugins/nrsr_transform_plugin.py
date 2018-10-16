@@ -265,9 +265,16 @@ class NRSRTransformOperator(BaseOperator):
             return session_frame
 
         session_frame['session_num'] = session_frame['name'].apply(
-            lambda x: ''.join(re.findall(r'\d+', x['name'][:15])), axis=1)
+            lambda x: ''.join(re.findall(r'\d+', x[:15])))
         session_frame['progpoint'] = session_frame['progpoint'].apply(
             lambda x: x.replace('.', ''))
+
+        session_frame.state.replace(['Prerokovaný bod programu'], 'discussed', inplace=True)
+        session_frame.state.replace(['Neprerokovaný bod programu'], 'notdiscussed', inplace=True)
+        session_frame.state.replace(['Presunutý bod programu'], 'moved', inplace=True)
+        session_frame.state.replace(['Stiahnutý bod programu'], 'withdrawn', inplace=True)
+        session_frame.state.replace(['Prerušené rokovanie o bode programu'], 'interrupted', inplace=True)
+
         # TODO(Jozef): Add attachments
         session_frame = session_frame[[
             'external_id', 'session_num', 'period_num', 'name', 'state',
