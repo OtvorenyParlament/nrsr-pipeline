@@ -255,7 +255,9 @@ class NRSRTransformOperator(BaseOperator):
                 'state': '$program_points.state',
                 'progpoint': '$program_points.progpoint',
                 'parlpress': '$program_points.parlpress',
-                'text': '$program_points.text'
+                'text1': {'$arrayElemAt': ['$program_points.text', 0]},
+                'text2': {'$arrayElemAt': ['$program_points.text', 1]},
+                'text3': {'$arrayElemAt': ['$program_points.text', 2]},
             }
         }
         docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
@@ -274,11 +276,13 @@ class NRSRTransformOperator(BaseOperator):
         session_frame.state.replace(['Presunutý bod programu'], 'moved', inplace=True)
         session_frame.state.replace(['Stiahnutý bod programu'], 'withdrawn', inplace=True)
         session_frame.state.replace(['Prerušené rokovanie o bode programu'], 'interrupted', inplace=True)
+        session_frame.fillna({'text1': '', 'text2': '', 'text3': ''}, inplace=True)
+        session_frame = session_frame.where(session_frame.notnull(), None)
 
         # TODO(Jozef): Add attachments
         session_frame = session_frame[[
             'external_id', 'session_num', 'period_num', 'name', 'state',
-            'progpoint', 'parlpress', 'text', 'url'
+            'progpoint', 'parlpress', 'text1', 'text2', 'text3', 'url'
         ]]
 
         return session_frame

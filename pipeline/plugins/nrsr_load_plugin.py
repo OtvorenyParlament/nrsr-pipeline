@@ -34,7 +34,7 @@ class NRSRLoadOperator(BaseOperator):
         """
         Load MPs
         """
-        
+
         if not self.data_frame.empty:
             pg_conn = None
             try:
@@ -83,7 +83,7 @@ class NRSRLoadOperator(BaseOperator):
         """
         Load MP changes
         """
-        
+
         if not self.data_frame.empty:
             pg_conn = None
             try:
@@ -144,20 +144,94 @@ class NRSRLoadOperator(BaseOperator):
                 if pg_conn is not None:
                     pg_conn.close()
 
+    def load_sessions(self):
+        """
+        Load Sessions and program
+        """
+        if not self.data_frame.empty:
+            pg_conn = None
+            try:
+                pg_conn = psycopg2.connect(self.postgres_url)
+                pg_cursor = pg_conn.cursor()
+                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+
+                for _, row in self.data_frame.iterrows():
+                    if row['parlpress'] != 'null':
+                        row['parlpress'] = int(row['parlpress'])
+                    if row['progpoint'] != 'null':
+                        row['progpoint'] = int(row['progpoint'])
+                    if row['text1'] == 'null':
+                        row['text1'] = ''
+                    else:
+                        row['text1'] = row['text1'].replace("'", "''")
+                    if row['text2'] == 'null':
+                        row['text2'] = ''
+                    else:
+                        row['text2'] = row['text2'].replace("'", "''")
+                    if row['text3'] == 'null':
+                        row['text3'] = ''
+                    else:
+                        row['text3'] = row['text3'].replace("'", "''")
+                    query = """
+
+                        INSERT INTO parliament_session("name", external_id, period_id, session_num, url)
+                        VALUES (
+                            '{name}',
+                            {external_id},
+                            (SELECT id FROM parliament_period WHERE period_num = {period_num}),
+                            {session_num},
+                            '{url}'
+                        )
+                        ON CONFLICT(external_id) DO NOTHING;
+
+                        INSERT INTO parliament_sessionprogram(session_id, press_id, point, state, text1, text2, text3)
+                        VALUES (
+                            (SELECT id FROM parliament_session WHERE external_id = {external_id}),
+                            (SELECT PR.id FROM parliament_press PR 
+                            INNER JOIN parliament_period PE ON PR.period_id = PE.id 
+                            WHERE PE.period_num = {period_num}
+                            AND PR.press_num = '{parlpress}'),
+                            {progpoint},
+                            '{state}',
+                            '{text1}',
+                            '{text2}',
+                            '{text3}'
+                        )
+                        ON CONFLICT DO NOTHING;
+
+                    """.format(**row)
+                    pg_cursor.execute(query)
+                pg_conn.commit()
+            except (Exception, psycopg2.DatabaseError) as error:
+                raise error
+            finally:
+                if pg_conn is not None:
+                    pg_conn.close()
 
     def execute(self, context):
         """Operator Executor"""
-        self.data_frame = pandas.read_csv('{}/{}.csv'.format(self.file_src, self.data_type))
+        converters = {
+            'member': {},
+            'member_change': {},
+            'press': {},
+            'session': {}
+        }
+
+        self.data_frame = pandas.read_csv(
+            '{}/{}.csv'.format(self.file_src, self.data_type),
+            converters=converters[self.data_type])
         if self.data_type == 'member':
             self.load_members()
         elif self.data_type == 'member_change':
             self.load_member_changes()
         elif self.data_type == 'press':
             self.load_presses()
+        elif self.data_type == 'session':
+            self.load_sessions()
 
 
 class NRSRLoadPlugin(AirflowPlugin):
-    
+
     name = 'nrsr_load_plugin'
     operators = [NRSRLoadOperator]
     hooks = []
