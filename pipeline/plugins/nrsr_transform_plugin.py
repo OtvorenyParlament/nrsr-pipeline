@@ -287,6 +287,42 @@ class NRSRTransformOperator(BaseOperator):
 
         return session_frame
 
+    def transform_clubs(self):
+        """
+        Transform Clubs and Club memberships
+        """
+
+        fields_dict = {}
+        unwind = {'$unwind': '$members'}
+        projection = {
+            '$project': {
+                '_id': 1,
+                'period_num': 1,
+                'external_id': 1,
+                'url': 1,
+                'name': 1,
+                'email': 1,
+                'member_external_id': '$members.external_id',
+                'membership': '$members.membership'
+            }
+        }
+        docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
+        print("Clubs: {}".format(len(docs)))
+        club_frame = pandas.DataFrame(docs)
+        if club_frame.empty:
+            return club_frame
+
+        club_frame.replace(["predsedníčka", "predseda"], 'chairman', inplace=True)
+        club_frame.replace(
+            ["podpredsedníčka", "podpredeseda", "podpredseda"], 'vice-chairman', inplace=True)
+        club_frame.replace(["člen", "členka"], 'member', inplace=True)
+
+        club_frame = club_frame[[
+            'external_id', 'period_num', 'name', 'email', 'url',
+            'member_external_id', 'membership'
+        ]]
+        return club_frame
+
 
     def execute(self, context):
         """Operator Executor"""
@@ -299,6 +335,8 @@ class NRSRTransformOperator(BaseOperator):
             data_frame = self.transform_presses()
         elif self.data_type == 'session':
             data_frame = self.transform_sessions()
+        elif self.data_type == 'club':
+            data_frame = self.transform_clubs()
 
         if not data_frame.empty:
             data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))

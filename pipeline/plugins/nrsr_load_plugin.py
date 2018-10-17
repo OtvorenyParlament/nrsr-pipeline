@@ -69,7 +69,8 @@ class NRSRLoadOperator(BaseOperator):
                                 (SELECT id FROM person_person WHERE external_id = {external_id}),
                                 (SELECT id FROM parliament_party WHERE name = '{stood_for_party}'),
                                 '{url}'
-                        );
+                        )
+                        ON CONFLICT DO NOTHING;
                         """.format(**row)
                     )
                 pg_conn.commit()
@@ -208,13 +209,58 @@ class NRSRLoadOperator(BaseOperator):
                 if pg_conn is not None:
                     pg_conn.close()
 
+    def load_clubs(self):
+        """
+        Load Clubs and Club Members
+        """
+        if not self.data_frame.empty:
+            pg_conn = None
+            try:
+                pg_conn = psycopg2.connect(self.postgres_url)
+                pg_cursor = pg_conn.cursor()
+                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+
+                for _, row in self.data_frame.iterrows():
+                    query = """
+                    INSERT INTO parliament_club (period_id, name, email, external_id, url)
+                    VALUES (
+                        (SELECT id FROM parliament_period WHERE period_num = {period_num}),
+                        '{name}',
+                        '{email}',
+                        {external_id},
+                        '{url}'
+                    )
+                    ON CONFLICT DO NOTHING;
+
+                    INSERT INTO parliament_clubmember (club_id, member_id, membership)
+                    VALUES (
+                        (SELECT id FROM parliament_club WHERE external_id = {external_id}),
+                        (SELECT M.id FROM parliament_member M
+                        INNER JOIN parliament_period P ON M.period_id = P.id
+                        INNER JOIN person_person PER ON PER.id = M.person_id
+                        WHERE P.period_num = 7
+                        AND PER.external_id = {member_external_id}),
+                        '{membership}'
+                    )
+                    ON CONFLICT DO NOTHING;
+                    """.format(**row)
+                    pg_cursor.execute(query)
+                pg_conn.commit()
+            except (Exception, psycopg2.DatabaseError) as error:
+                raise error
+            finally:
+                if pg_conn is not None:
+                    pg_conn.close()
+
+
     def execute(self, context):
         """Operator Executor"""
         converters = {
             'member': {},
             'member_change': {},
             'press': {},
-            'session': {}
+            'session': {},
+            'club': {}
         }
 
         self.data_frame = pandas.read_csv(
@@ -228,6 +274,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_presses()
         elif self.data_type == 'session':
             self.load_sessions()
+        elif self.data_type == 'club':
+            self.load_clubs()
 
 
 class NRSRLoadPlugin(AirflowPlugin):

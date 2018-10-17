@@ -79,13 +79,13 @@ extract_sessions = NRSRScrapyOperator(
     dag=dag
 )
 
-# extract_clubs = NRSRScrapyOperator(
-#     task_id='extract_clubs',
-#     spider='clubs',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag)
+extract_clubs = NRSRScrapyOperator(
+    task_id='extract_clubs',
+    spider='clubs',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag)
 
 # extract_votings = NRSRScrapyOperator(
 #     task_id='extract_votings',
@@ -135,12 +135,6 @@ extract_sessions = NRSRScrapyOperator(
 
 # transform data
 
-# transform_clubs = PythonOperator(
-#     task_id='transform_clubs',
-#     python_callable=dummy,
-#     dag=dag
-# )
-
 transform_members = NRSRTransformOperator(
     task_id='transform_members',
     data_type='member',
@@ -185,6 +179,18 @@ transform_sessions = NRSRTransformOperator(
     dag=dag
 )
 
+transform_clubs = NRSRTransformOperator(
+    task_id='transform_clubs',
+    data_type='club',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    file_dest=TRANSFORMED_DST,
+    dag=dag
+)
+
+
 # transform_votings = PythonOperator(
 #     task_id='transform_votings',
 #     python_callable=dummy,
@@ -212,12 +218,6 @@ load_member_changes = NRSRLoadOperator(
     dag=dag
 )
 
-# load_clubs = PythonOperator(
-#     task_id='load_clubs',
-#     python_callable=dummy,
-#     dag=dag
-# )
-
 load_presses = NRSRLoadOperator(
     task_id='load_presses',
     data_type='press',
@@ -231,6 +231,16 @@ load_presses = NRSRLoadOperator(
 load_sessions = NRSRLoadOperator(
     task_id='load_sessions',
     data_type='session',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    file_src=TRANSFORMED_DST,
+    dag=dag
+)
+
+load_clubs = NRSRLoadOperator(
+    task_id='load_clubs',
+    data_type='club',
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
@@ -266,12 +276,10 @@ load_sessions.set_upstream(load_presses)
 load_sessions.set_upstream(transform_sessions)
 
 
-
-
-# extract_clubs.set_upstream(extract_presses)
-# transform_clubs.set_upstream(extract_clubs)
-# transform_clubs.set_upstream(load_members)
-# load_clubs.set_upstream(transform_clubs)
+extract_clubs.set_upstream(extract_sessions)
+transform_clubs.set_upstream(extract_clubs)
+transform_clubs.set_upstream(load_members)
+load_clubs.set_upstream(transform_clubs)
 
 
 # extract_votings.set_upstream(extract_clubs)
