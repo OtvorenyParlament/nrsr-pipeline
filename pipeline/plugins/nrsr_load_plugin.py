@@ -252,6 +252,51 @@ class NRSRLoadOperator(BaseOperator):
                 if pg_conn is not None:
                     pg_conn.close()
 
+    def load_votings(self):
+        """Load Votings and Votes"""
+        if not self.data_frame.empty:
+            pg_conn = None
+            try:
+                pg_conn = psycopg2.connect(self.postgres_url)
+                pg_cursor = pg_conn.cursor()
+                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+                for _, row in self.data_frame.iterrows():
+                    query = """
+                    INSERT INTO parliament_voting(external_id, session_id, press_id, voting_num, topic, timestamp, result, url)
+                    VALUES (
+                        {external_id},
+                        (
+                            SELECT S.id FROM parliament_session S
+                            INNER JOIN parliament_period P ON S.period_id = P.id
+                            WHERE P.period_num = {period_num}
+                            AND S.session_num = {session_num}
+                        ),
+                        (
+                            SELECT P.id FROM parliament_press P
+                            INNER JOIN parliament_period PE ON P.period_id = PE.id
+                            WHERE PE.period_num = {period_num}
+                            AND P.press_num = '{press_num}'
+                        ),
+                        {voting_num},
+                        '{topic}',
+                        '{datetime}',
+                        '{result}',
+                        '{url}'
+                    ) ON CONFLICT DO NOTHING;
+                    INSERT INTO parliament_votingvote(voting_id, person_id, vote)
+                    VALUES (
+                        (SELECT id FROM parliament_voting WHERE external_id = {external_id}),
+                        (SELECT id FROM person_person WHERE external_id = {member_external_id}),
+                        '{vote}'
+                    ) ON CONFLICT DO NOTHING;
+                    """.format(**row)
+                    pg_cursor.execute(query)
+                pg_conn.commit()
+            except (Exception, psycopg2.DatabaseError) as error:
+                raise error
+            finally:
+                if pg_conn is not None:
+                    pg_conn.close()
 
     def execute(self, context):
         """Operator Executor"""
@@ -260,7 +305,8 @@ class NRSRLoadOperator(BaseOperator):
             'member_change': {},
             'press': {},
             'session': {},
-            'club': {}
+            'club': {},
+            'voting': {}
         }
 
         self.data_frame = pandas.read_csv(
@@ -276,6 +322,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_sessions()
         elif self.data_type == 'club':
             self.load_clubs()
+        elif self.data_type == 'voting':
+            self.load_votings()
 
 
 class NRSRLoadPlugin(AirflowPlugin):

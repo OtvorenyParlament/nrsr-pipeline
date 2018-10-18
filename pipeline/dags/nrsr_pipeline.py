@@ -20,7 +20,7 @@ default_args = {
     'start_date': datetime(2018, 10, 10)
 }
 
-DAILY = False
+DAILY = True
 PERIOD = 7
 POSTGRES_URL = Variable.get('postgres_url')
 MONGO_SETTINGS = Variable.get('mongo_settings', deserialize_json=True)
@@ -87,14 +87,14 @@ extract_clubs = NRSRScrapyOperator(
     period=PERIOD,
     dag=dag)
 
-# extract_votings = NRSRScrapyOperator(
-#     task_id='extract_votings',
-#     spider='votings',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag
-# )
+extract_votings = NRSRScrapyOperator(
+    task_id='extract_votings',
+    spider='votings',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
 
 
 # extract_hour_of_questions = NRSRScrapyOperator(
@@ -191,11 +191,16 @@ transform_clubs = NRSRTransformOperator(
 )
 
 
-# transform_votings = PythonOperator(
-#     task_id='transform_votings',
-#     python_callable=dummy,
-#     dag=dag
-# )
+transform_votings = NRSRTransformOperator(
+    task_id='transform_votings',
+    data_type='voting',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    file_dest=TRANSFORMED_DST,
+    dag=dag
+)
 
 # load data
 load_members = NRSRLoadOperator(
@@ -248,11 +253,15 @@ load_clubs = NRSRLoadOperator(
     dag=dag
 )
 
-# load_votings = PythonOperator(
-#     task_id='load_votings',
-#     python_callable=dummy,
-#     dag=dag
-# )
+load_votings = NRSRLoadOperator(
+    task_id='load_votings',
+    data_type='voting',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    file_src=TRANSFORMED_DST,
+    dag=dag
+)
 
 
 # task dependencies
@@ -282,9 +291,9 @@ transform_clubs.set_upstream(load_members)
 load_clubs.set_upstream(transform_clubs)
 
 
-# extract_votings.set_upstream(extract_clubs)
-# transform_votings.set_upstream(extract_votings)
-# load_votings.set_upstream(transform_votings)
-# load_votings.set_upstream(load_members)
-# load_votings.set_upstream(load_sessions)
-# load_votings.set_upstream(load_presses)
+extract_votings.set_upstream(extract_clubs)
+transform_votings.set_upstream(extract_votings)
+load_votings.set_upstream(transform_votings)
+load_votings.set_upstream(load_members)
+load_votings.set_upstream(load_sessions)
+load_votings.set_upstream(load_presses)
