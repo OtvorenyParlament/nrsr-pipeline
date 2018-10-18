@@ -323,6 +323,52 @@ class NRSRTransformOperator(BaseOperator):
         ]]
         return club_frame
 
+    def transform_votings(self):
+        """
+        Transform votings and votes
+        """
+
+
+
+        fields_dict = {}
+        unwind = {'$unwind': '$votes'}
+        projection = {
+            '$project': {
+                '_id': 1,
+                'external_id': 1,
+                'topic': 1,
+                'datetime': 1,
+                'session_num': 1,
+                'voting_num': 1,
+                'result': 1,
+                'period_num': 1,
+                'press_num': 1,
+                'url': 1,
+                'vote': '$votes.vote',
+                'member_external_id': '$votes.external_id'
+            }
+        }
+        docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
+        print("Votes: {}".format(len(docs)))
+        voting_frame = pandas.DataFrame(docs)
+        if voting_frame.empty:
+            return voting_frame
+        voting_frame.result.replace(["Návrh prešiel"], 'passed', inplace=True)
+        voting_frame.result.replace(["Návrh neprešiel"],
+                                    'did_not_pass',
+                                    inplace=True)
+        voting_frame.result.replace(["Parlament nebol uznášaniaschopný"],
+                                    'parliament_unable',
+                                    inplace=True)
+
+        voting_frame = voting_frame[[
+            'external_id', 'topic', 'datetime', 'session_num', 'voting_num',
+            'period_num', 'press_num', 'result', 'url', 'vote',
+            'member_external_id'
+        ]]
+        return voting_frame
+
+
 
     def execute(self, context):
         """Operator Executor"""
@@ -337,9 +383,11 @@ class NRSRTransformOperator(BaseOperator):
             data_frame = self.transform_sessions()
         elif self.data_type == 'club':
             data_frame = self.transform_clubs()
+        elif self.data_type == 'voting':
+            data_frame = self.transform_votings()
 
         if not data_frame.empty:
-            data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type))
+            data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type), index=False)
 
 
 class NRSRTransformPlugin(AirflowPlugin):
