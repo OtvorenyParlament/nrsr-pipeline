@@ -105,6 +105,84 @@ class NRSRLoadOperator(BaseOperator):
                         ON CONFLICT (person_id, period_id, date, change_type) DO NOTHING;
                         """.format(**row)
                     )
+                
+                # TODO(Jozef): The following weak and dirty solution should be refactored
+                pg_cursor.execute(
+                """
+                SELECT MC.person_id, MC.date, MC.change_type FROM parliament_memberchange MC
+                INNER JOIN parliament_period P ON MC.period_id = P.id
+                WHERE P.period_num = {period_num}
+                ORDER BY MC.person_id, MC."date" ASC;
+                """.format(period_num=self.period))
+                rows = pg_cursor.fetchall()
+                persons = {}
+                for row in rows:
+                    if not row[0] in persons:
+                        persons[row[0]] = {}
+                    if not row[1] in persons[row[0]]:
+                        persons[row[0]][row[1]] = []
+                    persons[row[0]][row[1]].append(row[2])
+                    
+                reverse_pairs = [['doesnotapply', 'active'], ['substituteactive', 'substitutegained']]
+                for key, val in persons.items():
+                    for key2, val2 in val.items():
+                        if val2 in reverse_pairs:
+                            val2.reverse()
+
+                personline = {}
+                for key, val in persons.items():
+                    if not key in personline:
+                        personline[key] = []
+                    for key2, val2 in val.items():
+                        for val3 in val2:
+                            if val3 in ['active', 'substituteactive']:
+                                personline[key].append([key2, 'on'])
+                            elif val3 in ['doesnotapply', 'folded', 'substitutefolded']:
+                                personline[key].append([key2, 'off'])
+
+                pg_cursor.execute(
+                    """
+                    SELECT M.id, M.person_id FROM parliament_member M
+                    INNER JOIN parliament_period P
+                    ON M.period_id = P.id
+                    WHERE P.period_num = {period_num}
+                    """.format(period_num=self.period)
+                )
+                member_rows = pg_cursor.fetchall()
+                member_pairs = {x[1]: x[0] for x in member_rows}
+
+                records = []
+                for key, val in personline.items():
+                    val_len = len(val)
+                    for i in range(0, val_len, 2):
+                        try:
+                            records.append({
+                                'member_id': member_pairs[key],
+                                'start': val[i][0].strftime('%Y-%m-%d'),
+                                'end': val[i+1][0].strftime('%Y-%m-%d')
+                            })
+                        except IndexError:
+                            records.append({
+                                'member_id': member_pairs[key],
+                                'start': val[i][0].strftime('%Y-%m-%d'),
+                                'end': None
+                            })
+
+                for record in records:
+                    if record['end']:
+                        pg_cursor.execute(
+                            """
+                            INSERT INTO parliament_memberactive (member_id, start, "end")
+                            VALUES ({member_id}, '{start}', '{end}')
+                            """.format(**record)
+                        )
+                    else:
+                        pg_cursor.execute(
+                            """
+                            INSERT INTO parliament_memberactive (member_id, start)
+                            VALUES ({member_id}, '{start}')
+                            """.format(**record)
+                        )
                 pg_conn.commit()
             except (Exception, psycopg2.DatabaseError) as error:
                 raise error
