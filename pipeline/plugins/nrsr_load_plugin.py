@@ -152,19 +152,25 @@ class NRSRLoadOperator(BaseOperator):
                 member_pairs = {x[1]: x[0] for x in member_rows}
 
                 records = []
+                off = 'off'
+                datestring = '%Y-%m-%d'
                 for key, val in personline.items():
+                    if len(val) == 1 and val[0][1] == off:
+                        continue
                     val_len = len(val)
                     for i in range(0, val_len, 2):
+                        if val[i][1] == off and val[i-1][1] == off:
+                            continue
                         try:
                             records.append({
                                 'member_id': member_pairs[key],
-                                'start': val[i][0].strftime('%Y-%m-%d'),
-                                'end': val[i+1][0].strftime('%Y-%m-%d')
+                                'start': val[i][0].strftime(datestring),
+                                'end': val[i+1][0].strftime(datestring)
                             })
                         except IndexError:
                             records.append({
                                 'member_id': member_pairs[key],
-                                'start': val[i][0].strftime('%Y-%m-%d'),
+                                'start': val[i][0].strftime(datestring),
                                 'end': None
                             })
 
