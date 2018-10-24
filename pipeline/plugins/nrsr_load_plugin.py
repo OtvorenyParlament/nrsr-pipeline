@@ -180,6 +180,7 @@ class NRSRLoadOperator(BaseOperator):
                             """
                             INSERT INTO parliament_memberactive (member_id, start, "end")
                             VALUES ({member_id}, '{start}', '{end}')
+                            ON CONFLICT (member_id, start) WHERE "end" IS NULL DO UPDATE SET "end" = '{end}';
                             """.format(**record)
                         )
                     else:
@@ -187,6 +188,7 @@ class NRSRLoadOperator(BaseOperator):
                             """
                             INSERT INTO parliament_memberactive (member_id, start)
                             VALUES ({member_id}, '{start}')
+                            ON CONFLICT DO NOTHING;
                             """.format(**record)
                         )
                 pg_conn.commit()
@@ -344,7 +346,9 @@ class NRSRLoadOperator(BaseOperator):
                 pg_conn = psycopg2.connect(self.postgres_url)
                 pg_cursor = pg_conn.cursor()
                 self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+                # TODO(Jozef): optimize the following weak query
                 for _, row in self.data_frame.iterrows():
+                    row['topic'] = row['topic'].replace("'", "''")
                     query = """
                     INSERT INTO parliament_voting(external_id, session_id, press_id, voting_num, topic, timestamp, result, url)
                     VALUES (
