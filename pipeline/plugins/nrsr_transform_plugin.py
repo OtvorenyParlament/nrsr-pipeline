@@ -332,6 +332,15 @@ class NRSRTransformOperator(BaseOperator):
         Transform club members
         """
 
+        max_voting = list(
+            self.mongo_col.find({
+                'type': 'voting'
+            }, {
+                'datetime': 1
+            }).sort([('datetime', -1)]).limit(1))[0]['datetime'].replace(
+                hour=12, minute=0, second=0, microsecond=0)
+
+        # TODO(Jozef): the if/else condition won't work on last day of period
         aggregation = [
             {
                 '$unwind': '$clubs'
@@ -371,7 +380,8 @@ class NRSRTransformOperator(BaseOperator):
                 }
             }, {
                 '$sort': {
-                    '_id.member': 1
+                    '_id.member': 1,
+                    'start': 1
                 }
             },
             {
@@ -385,11 +395,7 @@ class NRSRTransformOperator(BaseOperator):
                             'if': {
                                 '$eq': [
                                     '$end',
-                                    (datetime.utcnow().replace(
-                                        hour=12,
-                                        minute=0,
-                                        second=0,
-                                        microsecond=0) - timedelta(days=1))
+                                    max_voting
                                 ]
                             },
                             'then': None,
