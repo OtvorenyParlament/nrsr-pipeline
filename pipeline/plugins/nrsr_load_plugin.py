@@ -403,17 +403,29 @@ class NRSRLoadOperator(BaseOperator):
                 data_frame = self.data_frame.merge(members_found_frame, on=['period_num', 'member'], how='left')
                 data_frame = data_frame.merge(club_frame, on=['period_id', 'club'], how='left')
                 for _, row in data_frame.iterrows():
-                    query = """
-                    INSERT INTO parliament_clubmember (club_id, member_id, start, "end", membership)
-                    VALUES (
-                        {club_id},
-                        {member_id},
-                        '{start}',
-                        '{end}',
-                        ''
-                    )
-                    ON CONFLICT (club_id, member_id, start) DO UPDATE SET "end" = '{end}';
-                    """.format(**row)
+                    if row['end'] != 'null':
+                        query = """
+                            INSERT INTO parliament_clubmember (club_id, member_id, start, "end", membership)
+                            VALUES (
+                                {club_id},
+                                {member_id},
+                                '{start}',
+                                '{end}',
+                                ''
+                            )
+                            ON CONFLICT (club_id, member_id, start) DO UPDATE SET "end" = '{end}';
+                        """.format(**row)
+                    else:
+                        query = """
+                            INSERT INTO parliament_clubmember (club_id, member_id, start, membership)
+                            VALUES (
+                                {club_id},
+                                {member_id},
+                                '{start}',
+                                ''
+                            )
+                            ON CONFLICT DO NOTHING;
+                        """.format(**row)
                     pg_cursor.execute(query)
                 pg_conn.commit()
 
