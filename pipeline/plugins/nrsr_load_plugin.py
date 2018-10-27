@@ -338,6 +338,91 @@ class NRSRLoadOperator(BaseOperator):
                 if pg_conn is not None:
                     pg_conn.close()
 
+    def load_club_members(self):
+        """Load Club Members"""
+        if not self.data_frame.empty:
+            pg_conn = None
+            try:
+                pg_conn = psycopg2.connect(self.postgres_url)
+                pg_cursor = pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+
+                # clubs
+                club_frame = self.data_frame[['period_num', 'club']].drop_duplicates()
+                periods_frame = club_frame[['period_num']].drop_duplicates()
+                periods_list = list(periods_frame['period_num'].values)
+                in_string = '({})'.format(', '.join(map(str, periods_list)))
+                pg_cursor.execute(
+                    """
+                    SELECT id AS period_id, period_num FROM parliament_period WHERE period_num IN {}
+                    """.format(in_string)
+                )
+                rows = pg_cursor.fetchall()
+                periods_frame = pandas.DataFrame(rows)
+                club_frame = club_frame.merge(periods_frame, on='period_num', how='left')
+                for _, row in club_frame.iterrows():
+                    query = """
+                        INSERT INTO parliament_club (name, period_id)
+                        VALUES ('{club}', {period_id})
+                        ON CONFLICT DO NOTHING;
+                    """.format(**row)
+                    pg_cursor.execute(query)
+                
+                # club members
+                pg_cursor.execute(
+                    """
+                    SELECT id AS club_id, name AS club, period_id FROM parliament_club
+                    """
+                )
+                rows = pg_cursor.fetchall()
+                club_frame = pandas.DataFrame(rows)
+
+                member_frame = self.data_frame[['period_num', 'member']].drop_duplicates()
+                where_clauses = []
+                for _, row in member_frame.iterrows():
+                    where_clauses.append(
+                        '(P.period_num = {period_num} AND S.external_id = {member})'.format(**row))
+
+                where_full = ' OR '.join(where_clauses)
+                query = """
+                    SELECT
+                        P.id AS period_id,
+                        P.period_num AS period_num,
+                        M.id as member_id,
+                        S.id AS person_id,
+                        S.external_id AS member
+                    FROM person_person S
+                    INNER JOIN parliament_member M ON M.person_id = S.id
+                    INNER JOIN parliament_period P ON M.period_id = P.id
+                    WHERE ({where_full})
+                """.format(where_full=where_full)
+                pg_cursor.execute(query)
+
+                members_found_frame = pandas.DataFrame(pg_cursor.fetchall())
+                
+                data_frame = self.data_frame.merge(members_found_frame, on=['period_num', 'member'], how='left')
+                data_frame = data_frame.merge(club_frame, on=['period_id', 'club'], how='left')
+                for _, row in data_frame.iterrows():
+                    query = """
+                    INSERT INTO parliament_clubmember (club_id, member_id, start, "end", membership)
+                    VALUES (
+                        {club_id},
+                        {member_id},
+                        '{start}',
+                        '{end}',
+                        ''
+                    )
+                    ON CONFLICT (club_id, member_id, start) DO UPDATE SET "end" = '{end}';
+                    """.format(**row)
+                    pg_cursor.execute(query)
+                pg_conn.commit()
+
+            except (Exception, psycopg2.DatabaseError) as error:
+                raise error
+            finally:
+                if pg_conn is not None:
+                    pg_conn.close()
+
     def load_votings(self):
         """Load Votings and Votes"""
         if not self.data_frame.empty:
@@ -394,7 +479,8 @@ class NRSRLoadOperator(BaseOperator):
             'press': {},
             'session': {},
             'club': {},
-            'voting': {}
+            'voting': {},
+            'daily_club': {}
         }
 
         self.data_frame = pandas.read_csv(
@@ -410,6 +496,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_sessions()
         elif self.data_type == 'club':
             self.load_clubs()
+        elif self.data_type == 'daily_club':
+            self.load_club_members()
         elif self.data_type == 'voting':
             self.load_votings()
 

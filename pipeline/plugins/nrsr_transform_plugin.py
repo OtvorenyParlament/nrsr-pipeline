@@ -34,7 +34,7 @@ class NRSRTransformOperator(BaseOperator):
         self.mongo_col = mongo_db[mongo_settings['col']]
         self.postgres_url = postgres_url
 
-    def _get_documents(self, fields_dict, unwind=None, projection=None):
+    def _get_documents(self, fields_dict, *aggregation, unwind=None, projection=None):
         """
         Get MongoDB Cursor
         """
@@ -52,6 +52,9 @@ class NRSRTransformOperator(BaseOperator):
                 unwind,
                 projection
             ])
+        elif aggregation:
+            aggregation = [{'$match': filter_dict}] + list(aggregation)
+            docs = self.mongo_col.aggregate(aggregation)
         else:
             docs = self.mongo_col.find(filter_dict, fields_dict)
         return docs
@@ -287,12 +290,12 @@ class NRSRTransformOperator(BaseOperator):
 
         return session_frame
 
+    # TODO(Jozef): There is some discrepancy between listed clubs and clubs used in votings,
+    # should be merged into one solution somehow
     def transform_clubs(self):
         """
         Transform Clubs and Club memberships
         """
-
-        fields_dict = {}
         unwind = {'$unwind': '$members'}
         projection = {
             '$project': {
@@ -306,8 +309,9 @@ class NRSRTransformOperator(BaseOperator):
                 'membership': '$members.membership'
             }
         }
-        docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
+        docs = list(self._get_documents({}, unwind=unwind, projection=projection))
         print("Clubs: {}".format(len(docs)))
+
         club_frame = pandas.DataFrame(docs)
         if club_frame.empty:
             return club_frame
@@ -323,12 +327,89 @@ class NRSRTransformOperator(BaseOperator):
         ]]
         return club_frame
 
+    def transform_club_members(self):
+        """
+        Transform club members
+        """
+
+        aggregation = [
+            {
+                '$unwind': '$clubs'
+            },
+            {
+                '$project': {
+                    'period_num': 1,
+                    'date': 1,
+                    'club_name': {
+                        '$arrayElemAt': ['$clubs', 0]
+                    },
+                    'club_values': {
+                        '$arrayElemAt': ['$clubs', 1]
+                    }
+                }
+            }, {
+                '$unwind': '$club_values'
+            }, {
+                '$sort': {
+                    'club_values': 1,
+                    'date': 1
+                }
+            },
+            {
+                '$group': {
+                    '_id': {
+                        'period_num': '$period_num',
+                        'member': '$club_values',
+                        'club': '$club_name'
+                    },
+                    'start': {
+                        '$min': '$date'
+                    },
+                    'end': {
+                        '$max': '$date'
+                    }
+                }
+            }, {
+                '$sort': {
+                    '_id.member': 1
+                }
+            },
+            {
+                '$project': {
+                    'period_num': '$_id.period_num',
+                    'member': '$_id.member',
+                    'club': '$_id.club',
+                    'start': '$start',
+                    'end': {
+                        '$cond': {
+                            'if': {
+                                '$eq': [
+                                    '$end',
+                                    (datetime.utcnow().replace(
+                                        hour=12,
+                                        minute=0,
+                                        second=0,
+                                        microsecond=0) - timedelta(days=1))
+                                ]
+                            },
+                            'then': None,
+                            'else': '$end'
+                        }
+                    }
+                }
+            }
+        ]
+
+        docs = list(self._get_documents({}, *aggregation))
+        club_member_frame = pandas.DataFrame(docs)
+        club_member_frame = club_member_frame[['period_num', 'member', 'club', 'start', 'end']]
+
+        return club_member_frame
+
     def transform_votings(self):
         """
         Transform votings and votes
         """
-
-
 
         fields_dict = {}
         unwind = {'$unwind': '$votes'}
@@ -381,8 +462,10 @@ class NRSRTransformOperator(BaseOperator):
             data_frame = self.transform_presses()
         elif self.data_type == 'session':
             data_frame = self.transform_sessions()
-        elif self.data_type == 'club':
-            data_frame = self.transform_clubs()
+        # elif self.data_type == 'club':
+        #     data_frame = self.transform_clubs()
+        elif self.data_type == 'daily_club':
+            data_frame = self.transform_club_members()
         elif self.data_type == 'voting':
             data_frame = self.transform_votings()
 
