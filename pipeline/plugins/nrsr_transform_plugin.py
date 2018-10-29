@@ -224,7 +224,7 @@ class NRSRTransformOperator(BaseOperator):
         if press_frame.empty:
             return press_frame
 
-        press_frame.press_type.replace(['Návrh zákona'], 'draftlaw', inplace=True)
+        press_frame.press_type.replace(['Návrh zákona'], 'bill', inplace=True)
         press_frame.press_type.replace(['Iný typ'], 'other', inplace=True)
         press_frame.press_type.replace(['Informácia'], 'information', inplace=True)
         press_frame.press_type.replace(['Správa'], 'report', inplace=True)

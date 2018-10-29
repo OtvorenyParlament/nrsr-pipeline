@@ -124,14 +124,14 @@ extract_votings = NRSRScrapyOperator(
 #     dag=dag
 # )
 
-# extract_draft_law = NRSRScrapyOperator(
-#     task_id='extract_draft_law',
-#     spider='draft_law',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag
-# )
+extract_bills = NRSRScrapyOperator(
+    task_id='extract_bills',
+    spider='bills',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
 
 # extract_interpelations = NRSRScrapyOperator(
 #     task_id='extract_interpelations',
@@ -301,6 +301,8 @@ extract_votings.set_upstream(extract_sessions)
 
 extract_presses.set_upstream(extract_votings)
 extract_missing_presses.set_upstream(extract_presses)
+
+extract_bills.set_upstream(extract_missing_presses)
 
 # transforms
 transform_members.set_upstream(extract_members)
