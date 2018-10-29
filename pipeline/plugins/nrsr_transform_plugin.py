@@ -408,6 +408,8 @@ class NRSRTransformOperator(BaseOperator):
 
         docs = list(self._get_documents({}, *aggregation))
         club_member_frame = pandas.DataFrame(docs)
+        if club_member_frame.empty:
+            return club_member_frame
         club_member_frame = club_member_frame[['period_num', 'member', 'club', 'start', 'end']]
 
         return club_member_frame
