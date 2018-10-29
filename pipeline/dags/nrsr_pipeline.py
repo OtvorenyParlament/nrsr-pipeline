@@ -70,6 +70,15 @@ extract_presses = NRSRScrapyOperator(
     dag=dag
 )
 
+extract_missing_presses = NRSRScrapyOperator(
+    task_id='extract_missing_presses',
+    spider='missing_presses',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
+
 extract_sessions = NRSRScrapyOperator(
     task_id='extract_sessions',
     spider='sessions',
@@ -283,37 +292,57 @@ load_club_members = NRSRLoadOperator(
     dag=dag
 )
 
-
-# task dependencies
+# extracts
 extract_member_changes.set_upstream(extract_members)
 extract_missing_members.set_upstream(extract_member_changes)
+extract_sessions.set_upstream(extract_missing_members)
+
+extract_votings.set_upstream(extract_sessions)
+
+extract_presses.set_upstream(extract_votings)
+extract_missing_presses.set_upstream(extract_presses)
+
+# transforms
 transform_members.set_upstream(extract_members)
 transform_members.set_upstream(extract_missing_members)
-load_members.set_upstream(transform_members)
 
 transform_member_changes.set_upstream(extract_member_changes)
+
+transform_presses.set_upstream(extract_missing_presses)
+
+transform_sessions.set_upstream(extract_sessions)
+
+transform_votings.set_upstream(extract_votings)
+
+transform_club_members.set_upstream(extract_votings)
+
+
+# loads
+load_members.set_upstream(transform_members)
+
+
 load_member_changes.set_upstream(transform_member_changes)
 load_member_changes.set_upstream(load_members)
 
-extract_presses.set_upstream(extract_missing_members)
-transform_presses.set_upstream(extract_presses)
+
+
 load_presses.set_upstream(transform_presses)
 
-extract_sessions.set_upstream(extract_presses)
-transform_sessions.set_upstream(extract_sessions)
+
+
 load_sessions.set_upstream(load_presses)
 load_sessions.set_upstream(transform_sessions)
 
 
-extract_votings.set_upstream(extract_sessions)
-transform_votings.set_upstream(extract_votings)
+
+
 load_votings.set_upstream(transform_votings)
 load_votings.set_upstream(load_members)
 load_votings.set_upstream(load_sessions)
 load_votings.set_upstream(load_presses)
 
 
-transform_club_members.set_upstream(extract_votings)
+
 load_club_members.set_upstream(transform_club_members)
 # extract_clubs.set_upstream(extract_votings)
 # transform_clubs.set_upstream(extract_clubs)
