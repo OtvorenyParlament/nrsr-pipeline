@@ -20,7 +20,7 @@ default_args = {
     'start_date': datetime(2018, 10, 10)
 }
 
-DAILY = True
+DAILY = False
 PERIOD = 7
 POSTGRES_URL = Variable.get('postgres_url')
 MONGO_SETTINGS = Variable.get('mongo_settings', deserialize_json=True)
@@ -221,6 +221,17 @@ transform_club_members = NRSRTransformOperator(
     dag=dag
 )
 
+transform_bills = NRSRTransformOperator(
+    task_id='transform_bills',
+    data_type='bill',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    file_dest=TRANSFORMED_DST,
+    dag=dag
+)
+
 # load data
 load_members = NRSRLoadOperator(
     task_id='load_members',
@@ -318,6 +329,7 @@ transform_votings.set_upstream(extract_votings)
 
 transform_club_members.set_upstream(extract_votings)
 
+transform_bills.set_upstream(extract_bills)
 
 # loads
 load_members.set_upstream(transform_members)

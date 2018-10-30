@@ -3,6 +3,7 @@ Data Transform Plugin
 """
 
 from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 import logging
 import os
 import re
@@ -457,7 +458,133 @@ class NRSRTransformOperator(BaseOperator):
         ]]
         return voting_frame
 
+    def transform_bills(self):
+        """
+        Transform bills
+        """
+        fields_list = [
+            'type',
+            'external_id',
+            'period_num',
+            'press_num',
+            'proposer',
+            'delivered',
+            'current_state',
+            'current_result',
+            'url',
+        ]
 
+        fields_dict = {x: 1 for x in fields_list}
+
+        docs = list(self._get_documents(fields_dict))
+
+        for doc in docs:
+            press_title = ''
+            press_num = ''
+            if 'press_num' in doc:
+                presses = list(self.mongo_col.find({
+                    'type': 'press', 'num': str(doc['press_num']), 'period_num': (doc['period_num'])}))
+                if not presses:
+                    raise Exception("Missing press for {}".format(doc))
+                if len(presses) > 1:
+                    raise Exception("Multiple presses for {}".format(doc))
+                else:
+                    press_title = presses[0]['title']
+                    press_num = presses[0]['num']
+
+
+            doc['press_num'] = press_num
+            names = []
+            proposers = []
+            doc['proposer_nonmember'] = ''
+            if 'proposer' in doc and doc['proposer'].startswith('poslanci NR SR'):
+                try:
+                    names = re.match(r'^.*\(([^)]+)\)$', doc['proposer']).groups()[0].split(', ')
+                except AttributeError:
+                    names = []
+                    doc['proposer_nonmember'] = doc['proposer']
+                query = """
+                    SELECT M.id, S.forename, S.surname FROM parliament_member M
+                    INNER JOIN parliament_period P ON M.period_id = P.id
+                    INNER JOIN person_person S ON M.person_id = S.id
+                    WHERE P.period_num = {period_num}
+                    AND S.surname = '{surname}' AND S.forename LIKE '{forename}%'
+                    """
+                pg_conn = psycopg2.connect(self.postgres_url)
+                pg_cursor = pg_conn.cursor()
+                for name in names:
+                    name_list = name.split('.\xa0')
+                    pg_cursor.execute(
+                        query.format(
+                            period_num=doc['period_num'],
+                            forename=name_list[0],
+                            surname=name_list[1]
+                        )
+                    )
+                    rows = pg_cursor.fetchall()
+                    if len(rows) == 1:
+                        proposers.append(rows[0][0])
+                    elif len(rows) == 0:
+                        raise Exception("Missing member in {}".format(query))
+                    else:
+                        try:
+                            similarities = []
+                            for row in rows:
+                                similarities.append(
+                                    SequenceMatcher(
+                                        None, '{} {}'.format(row[1], row[2]),
+                                        press_title).ratio())
+                            max_ratio = max(similarities)
+                            proposers.append(rows[similarities.index(max_ratio)][0])
+                        except Exception as exc:
+                            raise Exception(
+                                "Similarities search failed on {} with {}".format(doc, exc))
+                pg_conn.close()
+                doc['proposers'] = ','.join(map(str, proposers)) if proposers else ''
+
+
+        bill_frame = pandas.DataFrame(docs)
+        if bill_frame.empty:
+            return bill_frame
+
+        bill_frame[['current_state', 'current_result']] = bill_frame[[
+            'current_state', 'current_result']].fillna(value=-1)
+        bill_frame.current_state.replace({
+            "Evidencia": 0,
+            "Uzavretá úloha": 1,
+            "Rokovanie NR SR": 8,
+            "Rokovanie gestorského výboru": 9,
+            "I. čítanie": 2,
+            "II. čítanie": 3,
+            "III. čítanie": 4,
+            "Redakcia": 5,
+            "Výber poradcov k NZ": 10,
+            "Stanovisko k NZ": 7
+        }, inplace=True)
+
+        bill_frame.current_result.replace({
+            "(NR SR nebude pokračovať v rokovaní o návrhu zákona)": 0,
+            "(NZ vzal navrhovateľ späť)": 1,
+            "(Zákon vyšiel v Zbierke zákonov)": 7,
+            "(NZ nebol schválený)": 5,
+            "(Zákon bol vrátený prezidentom)": 8,
+            "(Zápis spoločnej správy výborov)": 4,
+            "(Zapísané uznesenie výboru)": 9,
+            "(NZ postúpil do II. čítania)": 11,
+            "(NZ postúpil do redakcie)": 3,
+            "(Výber právneho poradcu)": 10,
+            "(Pripravená informácia k NZ)": 6
+        }, inplace=True)
+
+        bill_frame['current_state'] = bill_frame.current_state.astype(int)
+        bill_frame['current_result'] = bill_frame.current_result.astype(int)
+
+        bill_frame = bill_frame[[
+            'period_num', 'press_num', 'external_id', 'delivered',
+            'current_state', 'current_result', 'proposers',
+            'proposer_nonmember', 'url'
+        ]]
+        return bill_frame
 
     def execute(self, context):
         """Operator Executor"""
@@ -476,6 +603,8 @@ class NRSRTransformOperator(BaseOperator):
             data_frame = self.transform_club_members()
         elif self.data_type == 'voting':
             data_frame = self.transform_votings()
+        elif self.data_type == 'bill':
+            data_frame = self.transform_bills()
 
         if not data_frame.empty:
             data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type), index=False)
