@@ -69,7 +69,7 @@ pytz==2018.5
 pytzdata==2018.5
 PyYAML==3.13
 redis==2.10.6
-requests==2.19.1
+requests==2.20.0
 setproctitle==1.1.10
 six==1.11.0
 smmap2==2.0.4
