@@ -2,6 +2,7 @@
 Data Transform Plugin
 """
 
+import _pickle as cPickle
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 import logging
@@ -22,7 +23,8 @@ class NRSRTransformOperator(BaseOperator):
     Data Transform
     """
 
-    def __init__(self, data_type, period, daily, postgres_url, mongo_settings, file_dest, *args, **kwargs):
+    def __init__(self, data_type, period, daily,
+                 postgres_url, mongo_settings, file_dest, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.data_type = data_type
@@ -33,7 +35,15 @@ class NRSRTransformOperator(BaseOperator):
         mongo_client = MongoClient(mongo_settings['uri'])
         mongo_db = mongo_client[mongo_settings['db']]
         self.mongo_col = mongo_db[mongo_settings['col']]
+        self.mongo_outcol = mongo_db[mongo_settings['outcol']]
         self.postgres_url = postgres_url
+
+    def _insert_documents(self, documents):
+        """
+        Insert into MongoDB
+        """
+        self.mongo_outcol.insert_many(documents)
+
 
     def _get_documents(self, fields_dict, *aggregation, unwind=None, projection=None):
         """
@@ -42,9 +52,9 @@ class NRSRTransformOperator(BaseOperator):
 
         filter_dict = {'type': self.data_type}
         if self.period:
-            filter_dict['period_num'] = str(self.period)
+            filter_dict['period_num'] = self.period
         if self.daily:
-            now = datetime.utcnow() - timedelta(hours=36)
+            now = datetime.utcnow() - timedelta(hours=72)
             filter_dict['_id'] = {'$gte': ObjectId.from_datetime(now)}
 
         if unwind and projection:
@@ -60,7 +70,8 @@ class NRSRTransformOperator(BaseOperator):
             docs = self.mongo_col.find(filter_dict, fields_dict)
         return docs
 
-
+    def _copy_doc(self, document):
+        return cPickle.loads(cPickle.dumps(document, -1))
 
     def transform_members(self):
         """
@@ -81,85 +92,99 @@ class NRSRTransformOperator(BaseOperator):
             'image_urls',
             'period_num',
             'url',
-            'memberships'
+            'memberships',
+            'type'
         ]
         fields_dict = {x: 1 for x in fields_list}
 
-        # TODO(Jozef): Monitor memory consumption of this
-        docs = list(self._get_documents(fields_dict))
-        member_frame = pandas.DataFrame(docs)
-        if member_frame.empty:
-            return member_frame
+        new_docs = []
+
+        residence_replacements = {
+            'Tvrdošín-Medvedzie': 'Medvedzie',
+            'Kostolná-Záriečie': 'Kostolná - Záriečie',
+            'Ivánka pri Dunaji': 'Ivanka pri Dunaji',
+            'Nový Život - Eliášovce': 'Eliášovce',
+            'Michalovce - Čečehov': 'Čečehov',
+            'Hnúšťa - Likier': 'Likier'
+        }
+        county_replacements = {
+            'Trenčín': 'Trenčiansky',
+            'Nitra': 'Nitriansky',
+        }
+        nationality_replacements = {
+            'slovenská': 'slovak',
+            'maďarská': 'hungarian',
+            'rómska': 'romani',
+            'rusínska': 'rusyn',
+            'ruská': 'russian',
+            'česká': 'czech',
+            'ukrajinská': 'ukrainian',
+            '': 'unknown'
+        }
 
         pg_conn = psycopg2.connect(self.postgres_url)
         pg_cursor = pg_conn.cursor()
-        pg_cursor.execute(
-            """
-            SELECT "geo_village"."id", "geo_village"."full_name", "geo_district"."name", "geo_region"."name" 
-            FROM "geo_village" 
-            INNER JOIN "geo_district" ON ("geo_village"."district_id" = "geo_district"."id") 
-            INNER JOIN "geo_region" ON ("geo_district"."region_id" = "geo_region"."id")
-            """
-        )
-        villages = pg_cursor.fetchall()
-        if not villages:
-            raise Exception("No Villages are imported")
 
-        village_frame = pandas.DataFrame(
-            villages, columns=['id', 'village_name', 'district_name', 'region_name'])
+        wanted_keys = [
+            'external_id', 'period_num', 'forename', 'surname', 'title',
+            'email', 'born', 'nationality',
+            'external_photo_url', 'stood_for_party', 'url', 'type'
+        ]
 
+        for doc in self._get_documents(fields_dict):
+            new_doc = self._copy_doc(doc)
+            for key, val in new_doc.items():
+                if isinstance(val, str):
+                    new_doc[key] = val.strip()
+            new_doc['external_photo_url'] = new_doc['image_urls'][0]
 
-        # strip everything
-        member_frame = member_frame.applymap(lambda x: x.strip() if type(x) is str else x)
+            if new_doc['residence'] in residence_replacements:
+                new_doc['residence'] = residence_replacements[new_doc['residence']]
 
-        # external photo url
-        member_frame['external_photo_url'] = member_frame['image_urls'].map(lambda x: x[0])
+            if new_doc['external_id'] == 184:
+                new_doc['residence'] = 'Bratislava'
 
-        # fix villages
-        member_frame.residence.replace(['Tvrdošín-Medvedzie'], 'Medvedzie', inplace=True)
-        member_frame.residence.replace(
-            ['Kostolná-Záriečie'], 'Kostolná - Záriečie', inplace=True)
-        member_frame.residence.replace(['Ivánka pri Dunaji'], 'Ivanka pri Dunaji', inplace=True)
-        member_frame.residence.replace(['Nový Život - Eliášovce'], 'Eliášovce', inplace=True)
-        member_frame.residence.replace(['Michalovce - Čečehov'], 'Čečehov', inplace=True)
-        member_frame.residence.replace(['Hnúšťa - Likier'], 'Likier', inplace=True)
-        member_frame[
-            member_frame.external_id == '184'].replace(['Čaklov'], 'Bratislava', inplace=True)
+            if new_doc['residence'] == '':
+                new_doc['residence'] = 'Neuvedené'
 
-        member_frame.residence.replace([''], 'Neuvedené', inplace=True)
+            if new_doc['county'] in county_replacements:
+                new_doc['county'] = county_replacements[new_doc['county']]
 
-        # convert born to date
-        member_frame['born'] = pandas.to_datetime(member_frame['born'], format='%d. %m. %Y')
+            if new_doc['nationality'] in nationality_replacements:
+                new_doc['nationality'] = nationality_replacements[new_doc['nationality']]
 
-        # fix counties
-        member_frame.county.replace(['Trenčín'], 'Trenčiansky kraj', inplace=True)
-        member_frame.county.replace(['Nitra'], 'Nitriansky kraj', inplace=True)
+            region = new_doc['county'] if 'kraj' in new_doc['county'] else '{} kraj'.format(new_doc['county'])
+            residence_query = """
+                SELECT V.id, V.full_name, D.name, R.name
+                FROM geo_village V 
+                INNER JOIN geo_district D ON V.district_id = D.id
+                INNER JOIN geo_region R ON (D.region_id = R.id)
+                WHERE V.full_name = '{village}' AND R.name = '{region}'
+                """.format(village=new_doc['residence'], region=region)
+            pg_cursor.execute(residence_query)
+            villages = pg_cursor.fetchall()
+            residence_id = None
+            if not villages:
+                raise Exception("Residence can't be paired for {}".format(new_doc))
 
-        # fix nationalities
-        member_frame.nationality.replace(['slovenská'], 'slovak', inplace=True)
-        member_frame.nationality.replace(['maďarská'], 'hungarian', inplace=True)
-        member_frame.nationality.replace(['rómska'], 'romani', inplace=True)
-        member_frame.nationality.replace(['rusínska'], 'rusyn', inplace=True)
-        member_frame.nationality.replace(['ruská'], 'russian', inplace=True)
-        member_frame.nationality.replace(['česká'], 'czech', inplace=True)
-        member_frame.nationality.replace(['ukrajinská'], 'ukrainian', inplace=True)
-        member_frame.nationality.replace([''], 'unknown', inplace=True)
+            elif len(villages) > 1 and new_doc['external_id'] == 708:
+                for village in villages:
+                    if village[2] == 'Žarnovica':
+                        residence_id = village[0]
+                if not residence_id:
+                    raise Exception(
+                        "Residence doesn't match on {} for {}".format(new_doc, villages))
+            else:
+                residence_id = villages[0][0]
 
-        member_frame = member_frame.merge(
-            village_frame, left_on='residence', right_on='village_name', how='left')
+            if not residence_id:
+                raise Exception("residence_id for {} is None".format(new_doc))
 
-        # fix specific village
-        member_frame.drop(member_frame.loc[
-            (member_frame.external_id == '708') & (member_frame.district_name == 'Žarnovica')
-        ].index, inplace=True)
-
-        # id to residence_id
-        member_frame.rename({'id': 'residence_id'}, axis='columns', inplace=True)
-        member_frame = member_frame[
-            ['external_id', 'period_num', 'forename', 'surname', 'title', 'email',
-            'born', 'nationality', 'residence_id', 'external_photo_url', 'stood_for_party', 'url']]
-
-        return member_frame
+            new_doc = {k: v for k, v in new_doc.items() if k in wanted_keys}
+            new_doc['residence_id'] = residence_id
+            new_docs.append(new_doc)
+        if new_docs:
+            self._insert_documents(new_docs)
 
     def transform_member_changes(self):
         """
@@ -170,36 +195,32 @@ class NRSRTransformOperator(BaseOperator):
             'date',
             'period_num',
             'change_type',
-            'change_reason'
+            'change_reason',
+            'type'
         ]
         fields_dict = {x: 1 for x in fields_list}
 
-        # TODO(Jozef): Monitor memory consumption of this
-        docs = list(self._get_documents(fields_dict))
-        change_frame = pandas.DataFrame(docs)
-        if change_frame.empty:
-            return change_frame
+        new_docs = []
+        change_type = {
+            "Mandát sa neuplatňuje": 0,
+            "Mandát vykonávaný (aktívny poslanec)": 1,
+            "Mandát náhradníka zaniknutý": 2,
+            "Mandát náhradníka vykonávaný": 3,
+            "Mandát náhradníka získaný": 4,
+            "Mandát zaniknutý": 5,
+            "Mandát nadobudnutý vo voľbách": 6
+        }
 
-        change_frame.change_type.replace(
-            ["Mandát sa neuplatňuje"], 'doesnotapply', inplace=True)
-        change_frame.change_type.replace(
-            ["Mandát vykonávaný (aktívny poslanec)"], 'active', inplace=True)
-        change_frame.change_type.replace(
-            ["Mandát náhradníka zaniknutý"], 'substitutefolded', inplace=True)
-        change_frame.change_type.replace(
-            ["Mandát náhradníka vykonávaný"], 'substituteactive', inplace=True)
-        change_frame.change_type.replace(
-            ["Mandát náhradníka získaný"], 'substitutegained', inplace=True)
-        change_frame.change_type.replace(
-            ["Mandát zaniknutý"], 'folded', inplace=True)
-        change_frame.change_type.replace(
-            ["Mandát nadobudnutý vo voľbách"], 'gained', inplace=True)
+        for doc in self._get_documents(fields_dict):
+            new_doc = self._copy_doc(doc)
+            new_doc['change_type'] = change_type[doc['change_type']]
+            del new_doc['_id']
+            new_docs.append(new_doc)
 
-        change_frame['date'] = pandas.to_datetime(
-            change_frame['date'], format='%d. %m. %Y')
-        change_frame = change_frame[['external_id', 'date', 'period_num', 'change_type', 'change_reason']]
+        if new_docs:
+            self._insert_documents(new_docs)
 
-        return change_frame
+
 
     def transform_presses(self):
         """
@@ -484,7 +505,7 @@ class NRSRTransformOperator(BaseOperator):
             press_num = ''
             if 'press_num' in doc:
                 presses = list(self.mongo_col.find({
-                    'type': 'press', 'num': str(doc['press_num']), 'period_num': (doc['period_num'])}))
+                    'type': 'press', 'num': doc['press_num'], 'period_num': doc['period_num']}))
                 if not presses:
                     raise Exception("Missing press for {}".format(doc))
                 if len(presses) > 1:
@@ -589,7 +610,7 @@ class NRSRTransformOperator(BaseOperator):
             "Ústavný zákon": '6',
             "Informácia": '7',
             "Návrh zákona o štátnom rozpočte": '8',
-            "Zákon vrátený prezidentom": '9', 
+            "Zákon vrátený prezidentom": '9',
 
         }, inplace=True)
 
@@ -620,8 +641,8 @@ class NRSRTransformOperator(BaseOperator):
         elif self.data_type == 'bill':
             data_frame = self.transform_bills()
 
-        if not data_frame.empty:
-            data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type), index=False)
+        # if not data_frame.empty:
+        #     data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type), index=False)
 
 
 class NRSRTransformPlugin(AirflowPlugin):
