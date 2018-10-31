@@ -450,43 +450,47 @@ class NRSRTransformOperator(BaseOperator):
         Transform votings and votes
         """
 
-        fields_dict = {}
-        unwind = {'$unwind': '$votes'}
-        projection = {
-            '$project': {
-                '_id': 1,
-                'external_id': 1,
-                'topic': 1,
-                'datetime': 1,
-                'session_num': 1,
-                'voting_num': 1,
-                'result': 1,
-                'period_num': 1,
-                'press_num': 1,
-                'url': 1,
-                'vote': '$votes.vote',
-                'member_external_id': '$votes.external_id'
-            }
-        }
-        docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
-        print("Votes: {}".format(len(docs)))
-        voting_frame = pandas.DataFrame(docs)
-        if voting_frame.empty:
-            return voting_frame
-        voting_frame.result.replace(["Návrh prešiel"], 'passed', inplace=True)
-        voting_frame.result.replace(["Návrh neprešiel"],
-                                    'did_not_pass',
-                                    inplace=True)
-        voting_frame.result.replace(["Parlament nebol uznášaniaschopný"],
-                                    'parliament_unable',
-                                    inplace=True)
+        # fields_dict = {}
+        # unwind = {'$unwind': '$votes'}
+        # projection = {
+        #     '$project': {
+        #         '_id': 1,
+        #         'external_id': 1,
+        #         'topic': 1,
+        #         'datetime': 1,
+        #         'session_num': 1,
+        #         'voting_num': 1,
+        #         'result': 1,
+        #         'period_num': 1,
+        #         'press_num': 1,
+        #         'url': 1,
+        #         'vote': '$votes.vote',
+        #         'member_external_id': '$votes.external_id'
+        #     }
+        # }
 
-        voting_frame = voting_frame[[
+        fields_list = [
             'external_id', 'topic', 'datetime', 'session_num', 'voting_num',
-            'period_num', 'press_num', 'result', 'url', 'vote',
-            'member_external_id'
-        ]]
-        return voting_frame
+            'result', 'period_num', 'press_num', 'url', 'votes', 'type'
+        ]
+        fields_dict = {x: 1 for x in fields_list}
+
+        result_replacements = {
+            "Návrh prešiel": 0,
+            "Návrh neprešiel": 1,
+            "Parlament nebol uznášaniaschopný": 2
+        }
+
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            new_doc = self._copy_doc(doc)
+            new_doc['result'] = result_replacements[new_doc['result']]
+            del new_doc['_id']
+            new_docs.append(new_doc)
+
+        if new_docs:
+            self._insert_documents(new_docs)
+
 
     def transform_bills(self):
         """
