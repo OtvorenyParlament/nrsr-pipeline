@@ -399,7 +399,7 @@ class NRSRTransformOperator(BaseOperator):
                 '$group': {
                     '_id': {
                         'period_num': '$period_num',
-                        'member': '$club_values',
+                        'member_external_id': '$club_values',
                         'club': '$club_name'
                     },
                     'start': {
@@ -418,7 +418,7 @@ class NRSRTransformOperator(BaseOperator):
             {
                 '$project': {
                     'period_num': '$_id.period_num',
-                    'member': '$_id.member',
+                    'member_external_id': '$_id.member_external_id',
                     'club': '$_id.club',
                     'start': '$start',
                     'end': {
@@ -437,13 +437,19 @@ class NRSRTransformOperator(BaseOperator):
             }
         ]
 
-        docs = list(self._get_documents({}, *aggregation))
-        club_member_frame = pandas.DataFrame(docs)
-        if club_member_frame.empty:
-            return club_member_frame
-        club_member_frame = club_member_frame[['period_num', 'member', 'club', 'start', 'end']]
+        new_docs = []
+        for doc in self._get_documents({}, *aggregation):
+            new_docs.append({
+                'type': 'daily_club',
+                'period_num': doc['period_num'],
+                'member_external_id': doc['member_external_id'],
+                'club': doc['club'],
+                'start': doc['start'],
+                'end': doc['end']
+            })
 
-        return club_member_frame
+        if new_docs:
+            self._insert_documents(new_docs)
 
     def transform_votings(self):
         """
