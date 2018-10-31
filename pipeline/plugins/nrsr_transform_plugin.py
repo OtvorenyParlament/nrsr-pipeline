@@ -471,6 +471,7 @@ class NRSRTransformOperator(BaseOperator):
             'delivered',
             'current_state',
             'current_result',
+            'category_name',
             'url',
         ]
 
@@ -548,41 +549,54 @@ class NRSRTransformOperator(BaseOperator):
             return bill_frame
 
         bill_frame[['current_state', 'current_result']] = bill_frame[[
-            'current_state', 'current_result']].fillna(value=-1)
+            'current_state', 'current_result']].where(
+                bill_frame[['current_state', 'current_result']].notnull(), 'null')
+
         bill_frame.current_state.replace({
-            "Evidencia": 0,
-            "Uzavretá úloha": 1,
-            "Rokovanie NR SR": 8,
-            "Rokovanie gestorského výboru": 9,
-            "I. čítanie": 2,
-            "II. čítanie": 3,
-            "III. čítanie": 4,
-            "Redakcia": 5,
-            "Výber poradcov k NZ": 10,
-            "Stanovisko k NZ": 7
+            "Evidencia": '0',
+            "Uzavretá úloha": '1',
+            "Rokovanie NR SR": '8',
+            "Rokovanie gestorského výboru": '9',
+            "I. čítanie": '2',
+            "II. čítanie": '3',
+            "III. čítanie": '4',
+            "Redakcia": '5',
+            "Výber poradcov k NZ": '10',
+            "Stanovisko k NZ": '7'
         }, inplace=True)
 
         bill_frame.current_result.replace({
-            "(NR SR nebude pokračovať v rokovaní o návrhu zákona)": 0,
-            "(NZ vzal navrhovateľ späť)": 1,
-            "(Zákon vyšiel v Zbierke zákonov)": 7,
-            "(NZ nebol schválený)": 5,
-            "(Zákon bol vrátený prezidentom)": 8,
-            "(Zápis spoločnej správy výborov)": 4,
-            "(Zapísané uznesenie výboru)": 9,
-            "(NZ postúpil do II. čítania)": 11,
-            "(NZ postúpil do redakcie)": 3,
-            "(Výber právneho poradcu)": 10,
-            "(Pripravená informácia k NZ)": 6
+            "(NR SR nebude pokračovať v rokovaní o návrhu zákona)": '0',
+            "(NZ vzal navrhovateľ späť)": '1',
+            "(Zákon vyšiel v Zbierke zákonov)": '7',
+            "(NZ nebol schválený)": '5',
+            "(Zákon bol vrátený prezidentom)": '8',
+            "(Zápis spoločnej správy výborov)": '4',
+            "(Zapísané uznesenie výboru)": '9',
+            "(NZ postúpil do II. čítania)": '11',
+            "(NZ postúpil do redakcie)": '3',
+            "(Výber právneho poradcu)": '10',
+            "(Pripravená informácia k NZ)": '6'
         }, inplace=True)
 
-        bill_frame['current_state'] = bill_frame.current_state.astype(int)
-        bill_frame['current_result'] = bill_frame.current_result.astype(int)
+        bill_frame.category_name.replace({
+            "Novela zákona": '0',
+            "Návrh nového zákona": '1',
+            "Iný typ": '2',
+            "Petícia": '3',
+            "Medzinárodná zmluva": '4',
+            "Správa": '5',
+            "Ústavný zákon": '6',
+            "Informácia": '7',
+            "Návrh zákona o štátnom rozpočte": '8',
+            "Zákon vrátený prezidentom": '9', 
+
+        }, inplace=True)
 
         bill_frame = bill_frame[[
             'period_num', 'press_num', 'external_id', 'delivered',
             'current_state', 'current_result', 'proposers',
-            'proposer_nonmember', 'url'
+            'proposer_nonmember', 'category_name', 'url'
         ]]
         return bill_frame
 
