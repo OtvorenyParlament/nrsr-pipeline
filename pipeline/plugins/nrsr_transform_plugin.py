@@ -266,51 +266,60 @@ class NRSRTransformOperator(BaseOperator):
         """
         Transform Session data
         """
-        fields_dict = {}
 
-        # TODO(Jozef): Monitor memory consumption of this
-        unwind = {'$unwind': '$program_points'}
-        projection = {
-            '$project': {
-                '_id': 1,
-                'url': 1,
-                'period_num': 1,
-                'external_id': 1,
-                'name': 1,
-                'state': '$program_points.state',
-                'progpoint': '$program_points.progpoint',
-                'parlpress': '$program_points.parlpress',
-                'text1': {'$arrayElemAt': ['$program_points.text', 0]},
-                'text2': {'$arrayElemAt': ['$program_points.text', 1]},
-                'text3': {'$arrayElemAt': ['$program_points.text', 2]},
-            }
+        # unwind = {'$unwind': '$program_points'}
+        # projection = {
+        #     '$project': {
+        #         '_id': 1,
+        #         'url': 1,
+        #         'period_num': 1,
+        #         'external_id': 1,
+        #         'name': 1,
+        #         'state': '$program_points.state',
+        #         'progpoint': '$program_points.progpoint',
+        #         'parlpress': '$program_points.parlpress',
+        #         'text1': {'$arrayElemAt': ['$program_points.text', 0]},
+        #         'text2': {'$arrayElemAt': ['$program_points.text', 1]},
+        #         'text3': {'$arrayElemAt': ['$program_points.text', 2]},
+        #     }
+        # }
+
+        fields_list = ['url', 'period_num', 'external_id', 'name', 'program_points', 'type']
+        fields_dict = {x: 1 for x in fields_list}
+
+        state_replacements = {
+            'Prerokovaný bod programu': 0,
+            'Neprerokovaný bod programu': 1,
+            'Presunutý bod programu': 2,
+            'Stiahnutý bod programu': 3,
+            'Prerušené rokovanie o bode programu': 4,
         }
-        docs = list(self._get_documents(fields_dict, unwind=unwind, projection=projection))
 
-        session_frame = pandas.DataFrame(docs)
-        if session_frame.empty:
-            return session_frame
+        wanted_keys = ['external_id', 'period_num', 'name', 'type', 'url', 'program_points']
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            new_doc = self._copy_doc(doc)
+            try:
+                new_doc['session_num'] = int(''.join(re.findall(r'\d+', new_doc['name'][:15])))
+            except ValueError:
+                new_doc['session_num'] = None
 
-        session_frame['session_num'] = session_frame['name'].apply(
-            lambda x: ''.join(re.findall(r'\d+', x[:15])))
-        session_frame['progpoint'] = session_frame['progpoint'].apply(
-            lambda x: x.replace('.', ''))
+            program_points = []
+            for point in new_doc['program_points']:
+                program_points.append({
+                    'state': state_replacements[point['state']],
+                    'point_num': point['progpoint'],
+                    'press_num': point['parlpress'],
+                    'text1': point['text'][0],
+                    'text2': point['text'][1],
+                    'text3': point['text'][2],
+                })
+            new_doc['program_points'] = program_points
+            new_doc = {k: v for k, v in new_doc.items() if k in wanted_keys}
+            new_docs.append(new_doc)
 
-        session_frame.state.replace(['Prerokovaný bod programu'], 'discussed', inplace=True)
-        session_frame.state.replace(['Neprerokovaný bod programu'], 'notdiscussed', inplace=True)
-        session_frame.state.replace(['Presunutý bod programu'], 'moved', inplace=True)
-        session_frame.state.replace(['Stiahnutý bod programu'], 'withdrawn', inplace=True)
-        session_frame.state.replace(['Prerušené rokovanie o bode programu'], 'interrupted', inplace=True)
-        session_frame.fillna({'text1': '', 'text2': '', 'text3': ''}, inplace=True)
-        session_frame = session_frame.where(session_frame.notnull(), None)
-
-        # TODO(Jozef): Add attachments
-        session_frame = session_frame[[
-            'external_id', 'session_num', 'period_num', 'name', 'state',
-            'progpoint', 'parlpress', 'text1', 'text2', 'text3', 'url'
-        ]]
-
-        return session_frame
+        if new_docs:
+            self._insert_documents(new_docs)
 
     # TODO(Jozef): There is some discrepancy between listed clubs and clubs used in votings,
     # should be merged into one solution somehow
