@@ -285,7 +285,7 @@ class NRSRTransformOperator(BaseOperator):
             'Prerušené rokovanie o bode programu': 4,
         }
 
-        wanted_keys = ['external_id', 'period_num', 'name', 'type', 'url', 'program_points']
+        wanted_keys = ['external_id', 'period_num', 'name', 'type', 'url', 'program_points', 'session_num']
         new_docs = []
         for doc in self._get_documents(fields_dict):
             new_doc = self._copy_doc(doc)
