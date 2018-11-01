@@ -452,69 +452,68 @@ class NRSRLoadOperator(BaseOperator):
 
     def load_bills(self):
         """Load Bills"""
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                # TODO: separate updating needed
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
-                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'NULL')
-                for _, row in self.data_frame.iterrows():
-                    if row['press_num'] != 'NULL':
-                        row['press_num'] = int(row['press_num'])
-                    if row['proposer_nonmember'] == 'NULL':
-                        row['proposer_nonmember'] = ''
-                    if row['delivered'] == 'NULL':
-                        continue
-                    pg_cursor.execute(
-                        """
-                        INSERT INTO parliament_bill (
-                            external_id, delivered, proposer_nonmember,
-                            state, result, url, press_id, category)
-                        VALUES (
-                            {external_id},
-                            '{delivered}',
-                            '{proposer_nonmember}',
-                            {current_state},
-                            {current_result},
-                            '{url}',
-                            (
-                                SELECT S.id FROM parliament_press S
-                                INNER JOIN parliament_period P ON S.period_id = P.id
-                                WHERE P.period_num = {period_num} AND S.press_num = '{press_num}'
-                            ),
-                            {category_name}
-                        )
-                        ON CONFLICT DO NOTHING;""".format(**row)
-                    )
-                    if row['proposers']:
-                        proposers = row['proposers'].split(',')
-                        pg_cursor.execute(
-                            """
-                            SELECT id FROM parliament_bill WHERE external_id = {}
-                            """.format(row['external_id'])
-                        )
-                        bill = pg_cursor.fetchone()
-                        if not bill:
-                            raise Exception("BILL {} not found".format(row['external_id']))
-                        for proposer in proposers:
-                            if proposer == 'NULL':
-                                continue
-                            pg_cursor.execute(
-                                """
-                                INSERT INTO parliament_bill_proposers (bill_id, member_id)
-                                VALUES ({bill_id}, {member_id})
-                                ON CONFLICT DO NOTHING;
-                                """.format(bill_id=bill[0], member_id=proposer)
-                            )
 
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
 
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            bill_query = """
+            INSERT INTO parliament_bill (
+                external_id, delivered, proposer_nonmember,
+                state, result, url, press_id, category)
+            VALUES (
+                {external_id},
+                {delivered},
+                '{proposer_nonmember}',
+                {current_state},
+                {current_result},
+                '{url}',
+                (
+                    SELECT S.id FROM parliament_press S
+                    INNER JOIN parliament_period P ON S.period_id = P.id
+                    WHERE P.period_num = {period_num} AND S.press_num = '{press_num}'
+                ),
+                {category_name}
+            )
+            ON CONFLICT DO NOTHING
+            """
+
+            proposer_query = """
+            INSERT INTO parliament_bill_proposers (bill_id, member_id)
+            VALUES (
+                (
+                    SELECT id FROM parliament_bill WHERE external_id = {external_id}
+                ),
+                {member_id}
+            )
+            ON CONFLICT DO NOTHING
+            """
+
+            for doc in docs:
+                doc['delivered'] = """'{}'""".format(
+                    doc['delivered']) if doc['delivered'] else 'NULL'
+                if not 'current_result' in doc or not doc['current_result']:
+                    doc['current_result'] = 'NULL'
+                if not 'current_state' in doc or not doc['current_state']:
+                    doc['current_state'] = 'NULL'
+                pg_cursor.execute(bill_query.format(**doc))
+                if 'proposers' in doc:
+                    for proposer in doc['proposers']:
+                        pg_cursor.execute(proposer_query.format(
+                            member_id=proposer, external_id=doc['external_id']))
+            
+            pg_conn.commit()
+        
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def execute(self, context):
         """Operator Executor"""
