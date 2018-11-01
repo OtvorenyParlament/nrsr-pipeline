@@ -235,7 +235,7 @@ class NRSRTransformOperator(BaseOperator):
         """
         fields_list = [
             'title',
-            'num',
+            'press_num',
             'group_num',
             'period_num',
             'press_type',
