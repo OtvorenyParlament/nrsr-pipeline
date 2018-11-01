@@ -90,123 +90,139 @@ class NRSRLoadOperator(BaseOperator):
                 pg_conn.close()
 
 
+    # TODO(Jozef): high cyclomatic complexity. reduce
     def load_member_changes(self):
         """
         Load MP changes
         """
 
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
 
-                for _, row in self.data_frame.iterrows():
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+
+            # insert into parliament_memberchange
+            query = """
+                INSERT INTO parliament_memberchange ("date", change_type, change_reason, period_id, person_id)
+                VALUES (
+                    '{date}',
+                    '{change_type}',
+                    '{change_reason}',
+                    (SELECT id FROM parliament_period WHERE period_num = {period_num}),
+                    (SELECT id FROM person_person WHERE external_id = {external_id})
+                )
+                ON CONFLICT (person_id, period_id, date, change_type) DO NOTHING;
+            """
+            for doc in docs:
+                pg_cursor.execute(query.format(**doc))
+
+            # insert into parliament_memberactive
+            doesnotapply = 0
+            active = 1
+            substituteactive = 3
+            substitutegained = 4
+            folded = 5
+            gained = 6
+            substitutefolded = 2
+            on = 'on'
+            off = 'off'
+
+            pg_cursor.execute(
+            """
+            SELECT MC.person_id, MC.date, MC.change_type FROM parliament_memberchange MC
+            INNER JOIN parliament_period P ON MC.period_id = P.id
+            WHERE P.period_num = {period_num}
+            ORDER BY MC.person_id, MC."date" ASC;
+            """.format(period_num=self.period))
+            rows = pg_cursor.fetchall()
+            print("Rows count: {}".format(len(rows)))
+            persons = {}
+            for row in rows:
+                if not row[0] in persons:
+                    persons[row[0]] = {}
+                if not row[1] in persons[row[0]]:
+                    persons[row[0]][row[1]] = []
+                persons[row[0]][row[1]].append(row[2])
+
+            reverse_pairs = [[doesnotapply, active], [substituteactive, substitutegained]]
+            for key, val in persons.items():
+                for key2, val2 in val.items():
+                    if val2 in reverse_pairs:
+                        val2.reverse()
+
+            personline = {}
+            for key, val in persons.items():
+                if not key in personline:
+                    personline[key] = []
+                for key2, val2 in val.items():
+                    for val3 in val2:
+                        if val3 in [active, substituteactive]:
+                            personline[key].append([key2, on])
+                        elif val3 in [doesnotapply, folded, substitutefolded]:
+                            personline[key].append([key2, off])
+
+            pg_cursor.execute(
+                """
+                SELECT M.id, M.person_id FROM parliament_member M
+                INNER JOIN parliament_period P
+                ON M.period_id = P.id
+                WHERE P.period_num = {period_num}
+                """.format(period_num=self.period)
+            )
+            member_rows = pg_cursor.fetchall()
+            member_pairs = {x[1]: x[0] for x in member_rows}
+
+            records = []
+            datestring = '%Y-%m-%d'
+            for key, val in personline.items():
+                if len(val) == 1 and val[0][1] == off:
+                    continue
+                val_len = len(val)
+                for i in range(0, val_len, 2):
+                    if val[i][1] == off and val[i-1][1] == off:
+                        continue
+                    try:
+                        records.append({
+                            'member_id': member_pairs[key],
+                            'start': val[i][0].strftime(datestring),
+                            'end': val[i+1][0].strftime(datestring)
+                        })
+                    except IndexError:
+                        records.append({
+                            'member_id': member_pairs[key],
+                            'start': val[i][0].strftime(datestring),
+                            'end': None
+                        })
+
+            for record in records:
+                if record['end']:
                     pg_cursor.execute(
                         """
-                        INSERT INTO parliament_memberchange ("date", change_type, change_reason, period_id, person_id)
-                        VALUES (
-                            '{date}',
-                            '{change_type}',
-                            '{change_reason}',
-                            (SELECT id FROM parliament_period WHERE period_num = {period_num}),
-                            (SELECT id FROM person_person WHERE external_id = {external_id})
-                        )
-                        ON CONFLICT (person_id, period_id, date, change_type) DO NOTHING;
-                        """.format(**row)
+                        INSERT INTO parliament_memberactive (member_id, start, "end")
+                        VALUES ({member_id}, '{start}', '{end}')
+                        ON CONFLICT (member_id, start) WHERE "end" IS NULL DO UPDATE SET "end" = '{end}';
+                        """.format(**record)
+                    )
+                else:
+                    pg_cursor.execute(
+                        """
+                        INSERT INTO parliament_memberactive (member_id, start)
+                        VALUES ({member_id}, '{start}')
+                        ON CONFLICT DO NOTHING;
+                        """.format(**record)
                     )
 
-                # TODO(Jozef): The following weak and dirty solution should be refactored
-                pg_cursor.execute(
-                """
-                SELECT MC.person_id, MC.date, MC.change_type FROM parliament_memberchange MC
-                INNER JOIN parliament_period P ON MC.period_id = P.id
-                WHERE P.period_num = {period_num}
-                ORDER BY MC.person_id, MC."date" ASC;
-                """.format(period_num=self.period))
-                rows = pg_cursor.fetchall()
-                persons = {}
-                for row in rows:
-                    if not row[0] in persons:
-                        persons[row[0]] = {}
-                    if not row[1] in persons[row[0]]:
-                        persons[row[0]][row[1]] = []
-                    persons[row[0]][row[1]].append(row[2])
-
-                reverse_pairs = [['doesnotapply', 'active'], ['substituteactive', 'substitutegained']]
-                for key, val in persons.items():
-                    for key2, val2 in val.items():
-                        if val2 in reverse_pairs:
-                            val2.reverse()
-
-                personline = {}
-                for key, val in persons.items():
-                    if not key in personline:
-                        personline[key] = []
-                    for key2, val2 in val.items():
-                        for val3 in val2:
-                            if val3 in ['active', 'substituteactive']:
-                                personline[key].append([key2, 'on'])
-                            elif val3 in ['doesnotapply', 'folded', 'substitutefolded']:
-                                personline[key].append([key2, 'off'])
-
-                pg_cursor.execute(
-                    """
-                    SELECT M.id, M.person_id FROM parliament_member M
-                    INNER JOIN parliament_period P
-                    ON M.period_id = P.id
-                    WHERE P.period_num = {period_num}
-                    """.format(period_num=self.period)
-                )
-                member_rows = pg_cursor.fetchall()
-                member_pairs = {x[1]: x[0] for x in member_rows}
-
-                records = []
-                off = 'off'
-                datestring = '%Y-%m-%d'
-                for key, val in personline.items():
-                    if len(val) == 1 and val[0][1] == off:
-                        continue
-                    val_len = len(val)
-                    for i in range(0, val_len, 2):
-                        if val[i][1] == off and val[i-1][1] == off:
-                            continue
-                        try:
-                            records.append({
-                                'member_id': member_pairs[key],
-                                'start': val[i][0].strftime(datestring),
-                                'end': val[i+1][0].strftime(datestring)
-                            })
-                        except IndexError:
-                            records.append({
-                                'member_id': member_pairs[key],
-                                'start': val[i][0].strftime(datestring),
-                                'end': None
-                            })
-
-                for record in records:
-                    if record['end']:
-                        pg_cursor.execute(
-                            """
-                            INSERT INTO parliament_memberactive (member_id, start, "end")
-                            VALUES ({member_id}, '{start}', '{end}')
-                            ON CONFLICT (member_id, start) WHERE "end" IS NULL DO UPDATE SET "end" = '{end}';
-                            """.format(**record)
-                        )
-                    else:
-                        pg_cursor.execute(
-                            """
-                            INSERT INTO parliament_memberactive (member_id, start)
-                            VALUES ({member_id}, '{start}')
-                            ON CONFLICT DO NOTHING;
-                            """.format(**record)
-                        )
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+            pg_conn.commit()
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def load_presses(self):
         """
