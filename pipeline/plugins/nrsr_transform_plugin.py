@@ -518,14 +518,14 @@ class NRSRTransformOperator(BaseOperator):
             press_num = ''
             if 'press_num' in doc:
                 presses = list(self.mongo_col.find({
-                    'type': 'press', 'num': doc['press_num'], 'period_num': doc['period_num']}))
+                    'type': 'press', 'press_num': doc['press_num'], 'period_num': doc['period_num']}))
                 if not presses:
                     raise Exception("Missing press for {}".format(doc))
                 if len(presses) > 1:
                     raise Exception("Multiple presses for {}".format(doc))
                 else:
                     press_title = presses[0]['title']
-                    press_num = presses[0]['num']
+                    press_num = presses[0]['press_num']
 
 
             doc['press_num'] = press_num
@@ -575,11 +575,17 @@ class NRSRTransformOperator(BaseOperator):
                             raise Exception(
                                 "Similarities search failed on {} with {}".format(doc, exc))
                 pg_conn.close()
-                doc['proposers'] = ','.join(map(str, proposers)) if proposers else ''
+                doc['proposers'] = proposers
 
             new_doc = self._copy_doc(doc)
-            new_doc['current_state'] = current_state_replacements[new_doc['current_state']]
-            new_doc['current_result'] = current_result_replacements[new_doc['current_result']]
+            try:
+                new_doc['current_state'] = current_state_replacements[new_doc['current_state']]
+            except KeyError:
+                new_doc['current_state'] = None
+            try:
+                new_doc['current_result'] = current_result_replacements[new_doc['current_result']]
+            except KeyError:
+                new_doc['current_result'] = None
             new_doc['category_name'] = category_name_replacements[new_doc['category_name']]
 
             new_doc = self._get_wanted_keys(new_doc, [
