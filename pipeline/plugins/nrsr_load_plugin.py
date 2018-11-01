@@ -321,145 +321,84 @@ class NRSRLoadOperator(BaseOperator):
                 if pg_conn is not None:
                     pg_conn.close()
 
-    def load_clubs(self):
-        """
-        Load Clubs and Club Members
-        """
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
-                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
-
-                for _, row in self.data_frame.iterrows():
-                    query = """
-                    INSERT INTO parliament_club (period_id, name, email, external_id, url)
-                    VALUES (
-                        (SELECT id FROM parliament_period WHERE period_num = {period_num}),
-                        '{name}',
-                        '{email}',
-                        {external_id},
-                        '{url}'
-                    )
-                    ON CONFLICT DO NOTHING;
-
-                    INSERT INTO parliament_clubmember (club_id, member_id, membership)
-                    VALUES (
-                        (SELECT id FROM parliament_club WHERE external_id = {external_id}),
-                        (SELECT M.id FROM parliament_member M
-                        INNER JOIN parliament_period P ON M.period_id = P.id
-                        INNER JOIN person_person PER ON PER.id = M.person_id
-                        WHERE P.period_num = 7
-                        AND PER.external_id = {member_external_id}),
-                        '{membership}'
-                    )
-                    ON CONFLICT DO NOTHING;
-                    """.format(**row)
-                    pg_cursor.execute(query)
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
-
     def load_club_members(self):
         """Load Club Members"""
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
 
-                # clubs
-                club_frame = self.data_frame[['period_num', 'club']].drop_duplicates()
-                periods_frame = club_frame[['period_num']].drop_duplicates()
-                periods_list = list(periods_frame['period_num'].values)
-                in_string = '({})'.format(', '.join(map(str, periods_list)))
-                pg_cursor.execute(
-                    """
-                    SELECT id AS period_id, period_num FROM parliament_period WHERE period_num IN {}
-                    """.format(in_string)
+        docs = self.mongo_outcol.find(find_query)
+        distinct_clubs = self.mongo_outcol.aggregate([
+            {'$match': find_query},
+            {'$group': {'_id': {'period_num': '$period_num', 'club': '$club'}}},
+            {'$project': {'club': '$_id.club', 'period_num': '$_id.period_num'}}
+        ])
+        distinct_periods = self.mongo_outcol.distinct('period_num', find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+
+            # get period ids
+            pg_cursor.execute(
+                """
+                SELECT id, period_num FROM parliament_period WHERE period_num IN ({})
+                """.format(', '.join(map(str, distinct_periods)))
+            )
+            period_rows = pg_cursor.fetchall()
+            periods = {x[1]: x[0] for x in period_rows}
+
+            # insert clubs
+            club_query = """
+                INSERT INTO parliament_club (name, period_id)
+                VALUES (
+                    '{club}',
+                    (SELECT id FROM parliament_period WHERE period_num = {period_num})
                 )
-                rows = pg_cursor.fetchall()
-                periods_frame = pandas.DataFrame(rows)
-                club_frame = club_frame.merge(periods_frame, on='period_num', how='left')
-                for _, row in club_frame.iterrows():
-                    query = """
-                        INSERT INTO parliament_club (name, period_id)
-                        VALUES ('{club}', {period_id})
-                        ON CONFLICT DO NOTHING;
-                    """.format(**row)
-                    pg_cursor.execute(query)
+                ON CONFLICT DO NOTHING;
+            """
+            for club in distinct_clubs:
+                pg_cursor.execute(club_query.format(**club))
 
-                # club members
-                pg_cursor.execute(
-                    """
-                    SELECT id AS club_id, name AS club, period_id FROM parliament_club
-                    """
+            # insert club members
+            clubmember_query = """
+                INSERT INTO parliament_clubmember (club_id, member_id, start, "end", membership)
+                VALUES (
+                    (
+                        SELECT C.id FROM parliament_club C
+                        INNER JOIN parliament_period P ON C.period_id = P.id
+                        WHERE C.name = '{club_name}' AND P.period_num = {period_num}
+                    ),
+                    (
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN parliament_period P ON M.period_id = P.id
+                        INNER JOIN person_person S ON M.person_id = S.id
+                        WHERE S.external_id = {member_external_id} AND P.period_num = {period_num}
+                    ),
+                    '{start}',
+                    {end},
+                    ''
                 )
-                rows = pg_cursor.fetchall()
-                club_frame = pandas.DataFrame(rows)
+                ON CONFLICT (club_id, member_id, start) {on_conflict};
+            """
+            for doc in docs:
+                insert_doc = {
+                    'club_name': doc['club'],
+                    'period_num': doc['period_num'],
+                    'member_external_id': doc['member_external_id'],
+                    'start': doc['start'],
+                    'end': """'{}'""".format(doc['end']) if doc['end'] else 'NULL',
+                    'on_conflict': """WHERE "end" IS NULL DO UPDATE SET "end" = '{}'""".format(
+                        doc['end']) if doc['end'] else 'DO NOTHING'
+                }
+                pg_cursor.execute(clubmember_query.format(**insert_doc))
+            pg_conn.commit()
 
-                member_frame = self.data_frame[['period_num', 'member']].drop_duplicates()
-                where_clauses = []
-                for _, row in member_frame.iterrows():
-                    where_clauses.append(
-                        '(P.period_num = {period_num} AND S.external_id = {member})'.format(**row))
-
-                where_full = ' OR '.join(where_clauses)
-                query = """
-                    SELECT
-                        P.id AS period_id,
-                        P.period_num AS period_num,
-                        M.id as member_id,
-                        S.id AS person_id,
-                        S.external_id AS member
-                    FROM person_person S
-                    INNER JOIN parliament_member M ON M.person_id = S.id
-                    INNER JOIN parliament_period P ON M.period_id = P.id
-                    WHERE ({where_full})
-                """.format(where_full=where_full)
-                pg_cursor.execute(query)
-
-                members_found_frame = pandas.DataFrame(pg_cursor.fetchall())
-
-                data_frame = self.data_frame.merge(members_found_frame, on=['period_num', 'member'], how='left')
-                data_frame = data_frame.merge(club_frame, on=['period_id', 'club'], how='left')
-                for _, row in data_frame.iterrows():
-                    if row['end'] != 'null':
-                        query = """
-                            INSERT INTO parliament_clubmember (club_id, member_id, start, "end", membership)
-                            VALUES (
-                                {club_id},
-                                {member_id},
-                                '{start}',
-                                '{end}',
-                                ''
-                            )
-                            ON CONFLICT (club_id, member_id, start) DO UPDATE SET "end" = '{end}';
-                        """.format(**row)
-                    else:
-                        query = """
-                            INSERT INTO parliament_clubmember (club_id, member_id, start, membership)
-                            VALUES (
-                                {club_id},
-                                {member_id},
-                                '{start}',
-                                ''
-                            )
-                            ON CONFLICT DO NOTHING;
-                        """.format(**row)
-                    pg_cursor.execute(query)
-                pg_conn.commit()
-
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def load_votings(self):
         """Load Votings and Votes"""
@@ -586,8 +525,6 @@ class NRSRLoadOperator(BaseOperator):
             self.load_presses()
         elif self.data_type == 'session':
             self.load_sessions()
-        elif self.data_type == 'club':
-            self.load_clubs()
         elif self.data_type == 'daily_club':
             self.load_club_members()
         elif self.data_type == 'voting':
