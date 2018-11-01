@@ -228,34 +228,36 @@ class NRSRLoadOperator(BaseOperator):
         """
         Load presses
         """
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
 
-                for _, row in self.data_frame.iterrows():
-                    row['title'] = row['title'].replace("'", "''")
-                    pg_cursor.execute(
-                        """
-                        INSERT INTO parliament_press (press_type, title, press_num, "date", url, period_id)
-                        VALUES (
-                            '{press_type}',
-                            '{title}',
-                            {press_num},
-                            '{date}',
-                            '{url}',
-                            (SELECT id FROM parliament_period WHERE period_num = {period_num})
-                        )
-                        ON CONFLICT (press_num, period_id) DO NOTHING;
-                        """.format(**row)
-                    )
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            query = """
+            INSERT INTO parliament_press (press_type, title, press_num, "date", url, period_id)
+            VALUES (
+                '{press_type}',
+                '{title}',
+                {press_num},
+                '{date}',
+                '{url}',
+                (SELECT id FROM parliament_period WHERE period_num = {period_num})
+            )
+            ON CONFLICT (press_num, period_id) DO NOTHING;
+            """
+            for doc in docs:
+                doc['title'] = doc['title'].replace("'", "''")
+                pg_cursor.execute(query.format(**doc))
+            pg_conn.commit()
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def load_sessions(self):
         """
