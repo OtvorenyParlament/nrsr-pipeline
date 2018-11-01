@@ -239,6 +239,7 @@ load_members = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
@@ -249,6 +250,7 @@ load_member_changes = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
@@ -259,6 +261,7 @@ load_presses = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
@@ -269,6 +272,7 @@ load_sessions = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
@@ -279,19 +283,10 @@ load_votings = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
-
-# load_clubs = NRSRLoadOperator(
-#     task_id='load_clubs',
-#     data_type='club',
-#     period=PERIOD,
-#     daily=DAILY,
-#     postgres_url=POSTGRES_URL,
-#     file_src=TRANSFORMED_DST,
-#     dag=dag
-# )
 
 load_club_members = NRSRLoadOperator(
     task_id='load_club_members',
@@ -299,6 +294,7 @@ load_club_members = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
@@ -309,6 +305,7 @@ load_bills = NRSRLoadOperator(
     period=PERIOD,
     daily=DAILY,
     postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
     file_src=TRANSFORMED_DST,
     dag=dag
 )
