@@ -263,65 +263,70 @@ class NRSRLoadOperator(BaseOperator):
         """
         Load Sessions and program
         """
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
-                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
 
-                for _, row in self.data_frame.iterrows():
-                    if row['parlpress'] != 'null':
-                        row['parlpress'] = int(row['parlpress'])
-                    if row['progpoint'] != 'null':
-                        row['progpoint'] = int(row['progpoint'])
-                    if row['text1'] == 'null':
-                        row['text1'] = ''
-                    else:
-                        row['text1'] = row['text1'].replace("'", "''")
-                    if row['text2'] == 'null':
-                        row['text2'] = ''
-                    else:
-                        row['text2'] = row['text2'].replace("'", "''")
-                    if row['text3'] == 'null':
-                        row['text3'] = ''
-                    else:
-                        row['text3'] = row['text3'].replace("'", "''")
-                    query = """
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            session_query = """
+                INSERT INTO parliament_session("name", external_id, period_id, session_num, url)
+                VALUES (
+                    '{name}',
+                    {external_id},
+                    (SELECT id FROM parliament_period WHERE period_num = {period_num}),
+                    {session_num},
+                    '{url}'
+                )
+                ON CONFLICT(external_id) DO NOTHING;
+            """
 
-                        INSERT INTO parliament_session("name", external_id, period_id, session_num, url)
-                        VALUES (
-                            '{name}',
-                            {external_id},
-                            (SELECT id FROM parliament_period WHERE period_num = {period_num}),
-                            {session_num},
-                            '{url}'
-                        )
-                        ON CONFLICT(external_id) DO NOTHING;
+            point_query = """
+                INSERT INTO parliament_sessionprogram(session_id, press_id, point, state, text1, text2, text3)
+                VALUES (
+                    (SELECT id FROM parliament_session WHERE external_id = {external_id}),
+                    (SELECT PR.id FROM parliament_press PR 
+                    INNER JOIN parliament_period PE ON PR.period_id = PE.id 
+                    WHERE PE.period_num = {period_num}
+                    AND PR.press_num = '{press_num}'),
+                    {point_num},
+                    {state},
+                    '{text1}',
+                    '{text2}',
+                    '{text3}'
+                )
+                ON CONFLICT DO NOTHING;
+            """
+            for doc in docs:
+                if not doc['session_num']:
+                    doc['session_num'] = 'NULL'
+                pg_cursor.execute(session_query.format(**doc))
 
-                        INSERT INTO parliament_sessionprogram(session_id, press_id, point, state, text1, text2, text3)
-                        VALUES (
-                            (SELECT id FROM parliament_session WHERE external_id = {external_id}),
-                            (SELECT PR.id FROM parliament_press PR 
-                            INNER JOIN parliament_period PE ON PR.period_id = PE.id 
-                            WHERE PE.period_num = {period_num}
-                            AND PR.press_num = '{parlpress}'),
-                            {progpoint},
-                            '{state}',
-                            '{text1}',
-                            '{text2}',
-                            '{text3}'
-                        )
-                        ON CONFLICT DO NOTHING;
+                if 'program_points' in doc:
+                    for point in doc['program_points']:
+                        if not point['point_num']:
+                            point['point_num'] = 'NULL'
+                        if not point['press_num']:
+                            point['press_num'] = 'NULL'
+                        
+                        point['text1'] = point['text1'].replace("'", "''")
+                        point['text2'] = point['text2'].replace("'", "''")
+                        point['text3'] = point['text3'].replace("'", "''")
+                        pg_cursor.execute(
+                            point_query.format(
+                                external_id=doc['external_id'],
+                                period_num=doc['period_num'],
+                                **point))
+            pg_conn.commit()
 
-                    """.format(**row)
-                    pg_cursor.execute(query)
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def load_club_members(self):
         """Load Club Members"""
@@ -506,9 +511,9 @@ class NRSRLoadOperator(BaseOperator):
                     for proposer in doc['proposers']:
                         pg_cursor.execute(proposer_query.format(
                             member_id=proposer, external_id=doc['external_id']))
-            
+
             pg_conn.commit()
-        
+
         except (Exception, psycopg2.DatabaseError) as error:
             raise error
         finally:
