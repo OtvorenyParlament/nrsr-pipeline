@@ -8,6 +8,7 @@ import os
 
 import pandas
 import psycopg2
+from pymongo import MongoClient
 
 from airflow.models import BaseOperator
 from airflow.plugins_manager import AirflowPlugin
@@ -18,7 +19,8 @@ class NRSRLoadOperator(BaseOperator):
     Load Data
     """
 
-    def __init__(self, data_type, period, daily, postgres_url, file_src, *args, **kwargs):
+    def __init__(self, data_type, period, daily, postgres_url, mongo_settings,
+                 file_src, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.data_type = data_type
@@ -28,6 +30,9 @@ class NRSRLoadOperator(BaseOperator):
         self.data_type = data_type
         self.data_frame = pandas.DataFrame([])
 
+        mongo_client = MongoClient(mongo_settings['uri'])
+        mongo_db = mongo_client[mongo_settings['db']]
+        self.mongo_outcol = mongo_db[mongo_settings['outcol']]
         self.postgres_url = postgres_url
 
     def load_members(self):
@@ -35,50 +40,55 @@ class NRSRLoadOperator(BaseOperator):
         Load MPs
         """
 
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
 
-                for _, row in self.data_frame.iterrows():
-                    pg_cursor.execute(
-                        """
-                        INSERT INTO
-                            person_person (title, forename, surname, born, email, nationality, external_photo_url, external_id, residence_id)
-                        VALUES
-                            (
-                            '{title}',
-                            '{forename}',
-                            '{surname}',
-                            '{born}',
-                            '{email}',
-                            '{nationality}',
-                            '{external_photo_url}',
-                            {external_id},
-                            {residence_id}
-                        )
-                        ON CONFLICT (external_id) DO NOTHING;
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            query = """
+                INSERT INTO
+                    person_person (title, forename, surname, born, email,
+                                   nationality, external_photo_url, external_id, residence_id)
+                VALUES
+                    (
+                    '{title}',
+                    '{forename}',
+                    '{surname}',
+                    '{born}',
+                    '{email}',
+                    '{nationality}',
+                    '{external_photo_url}',
+                    {external_id},
+                    {residence_id}
+                )
+                ON CONFLICT (external_id) DO NOTHING;
 
-                        INSERT INTO parliament_party (name) VALUES ('{stood_for_party}') ON CONFLICT (name) DO NOTHING;
+                INSERT INTO parliament_party (name) VALUES ('{stood_for_party}')
+                ON CONFLICT DO NOTHING;
 
-                        INSERT INTO
-                            parliament_member (period_id, person_id, stood_for_party_id, url)
-                        VALUES (
-                                (SELECT id FROM parliament_period where period_num = {period_num}),
-                                (SELECT id FROM person_person WHERE external_id = {external_id}),
-                                (SELECT id FROM parliament_party WHERE name = '{stood_for_party}'),
-                                '{url}'
-                        )
-                        ON CONFLICT DO NOTHING;
-                        """.format(**row)
-                    )
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+                INSERT INTO
+                    parliament_member (period_id, person_id, stood_for_party_id, url)
+                VALUES (
+                        (SELECT id FROM parliament_period where period_num = {period_num}),
+                        (SELECT id FROM person_person WHERE external_id = {external_id}),
+                        (SELECT id FROM parliament_party WHERE name = '{stood_for_party}'),
+                        '{url}'
+                )
+                ON CONFLICT DO NOTHING;
+            """
+            for doc in docs:
+                pg_cursor.execute(query.format(**doc))
+            pg_conn.commit()
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
+
 
     def load_member_changes(self):
         """
@@ -105,7 +115,7 @@ class NRSRLoadOperator(BaseOperator):
                         ON CONFLICT (person_id, period_id, date, change_type) DO NOTHING;
                         """.format(**row)
                     )
-                
+
                 # TODO(Jozef): The following weak and dirty solution should be refactored
                 pg_cursor.execute(
                 """
@@ -122,7 +132,7 @@ class NRSRLoadOperator(BaseOperator):
                     if not row[1] in persons[row[0]]:
                         persons[row[0]][row[1]] = []
                     persons[row[0]][row[1]].append(row[2])
-                    
+
                 reverse_pairs = [['doesnotapply', 'active'], ['substituteactive', 'substitutegained']]
                 for key, val in persons.items():
                     for key2, val2 in val.items():
@@ -367,7 +377,7 @@ class NRSRLoadOperator(BaseOperator):
                         ON CONFLICT DO NOTHING;
                     """.format(**row)
                     pg_cursor.execute(query)
-                
+
                 # club members
                 pg_cursor.execute(
                     """
@@ -399,7 +409,7 @@ class NRSRLoadOperator(BaseOperator):
                 pg_cursor.execute(query)
 
                 members_found_frame = pandas.DataFrame(pg_cursor.fetchall())
-                
+
                 data_frame = self.data_frame.merge(members_found_frame, on=['period_num', 'member'], how='left')
                 data_frame = data_frame.merge(club_frame, on=['period_id', 'club'], how='left')
                 for _, row in data_frame.iterrows():
@@ -551,20 +561,7 @@ class NRSRLoadOperator(BaseOperator):
 
     def execute(self, context):
         """Operator Executor"""
-        converters = {
-            'member': {},
-            'member_change': {},
-            'press': {},
-            'session': {},
-            'club': {},
-            'voting': {},
-            'daily_club': {},
-            'bill': {},
-        }
 
-        self.data_frame = pandas.read_csv(
-            '{}/{}.csv'.format(self.file_src, self.data_type),
-            converters=converters[self.data_type])
         if self.data_type == 'member':
             self.load_members()
         elif self.data_type == 'member_change':
