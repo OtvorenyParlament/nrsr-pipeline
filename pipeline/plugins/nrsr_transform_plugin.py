@@ -10,7 +10,6 @@ import os
 import re
 
 from bson.objectid import ObjectId
-import pandas
 import psycopg2
 from pymongo import MongoClient
 
@@ -72,6 +71,10 @@ class NRSRTransformOperator(BaseOperator):
 
     def _copy_doc(self, document):
         return cPickle.loads(cPickle.dumps(document, -1))
+
+    def _get_wanted_keys(self, document, keys):
+        """Reduce dictionary to wanted keys only"""
+        return {k: v for k, v in document.items() if k in keys}
 
     def transform_members(self):
         """
@@ -180,7 +183,7 @@ class NRSRTransformOperator(BaseOperator):
             if not residence_id:
                 raise Exception("residence_id for {} is None".format(new_doc))
 
-            new_doc = {k: v for k, v in new_doc.items() if k in wanted_keys}
+            new_doc = self._get_wanted_keys(new_doc, wanted_keys)
             new_doc['residence_id'] = residence_id
             new_docs.append(new_doc)
         if new_docs:
@@ -235,32 +238,32 @@ class NRSRTransformOperator(BaseOperator):
             'date',
             'attachments_urls',
             'attachments_names',
-            'url'
+            'url',
+            'type'
         ]
 
         fields_dict = {x: 1 for x in fields_list}
 
-        # TODO(Jozef): Monitor memory consumption of this
-        docs = list(self._get_documents(fields_dict))
-        press_frame = pandas.DataFrame(docs)
-        if press_frame.empty:
-            return press_frame
+        press_type_replacements = {
+            'Návrh zákona': 1,
+            'Iný typ': 2,
+            'Informácia': 7,
+            'Správa': 5,
+            'Petícia': 3,
+            'Medzinárodná zmluva': 4,
 
-        press_frame.press_type.replace(['Návrh zákona'], 'bill', inplace=True)
-        press_frame.press_type.replace(['Iný typ'], 'other', inplace=True)
-        press_frame.press_type.replace(['Informácia'], 'information', inplace=True)
-        press_frame.press_type.replace(['Správa'], 'report', inplace=True)
-        press_frame.press_type.replace(['Petícia'], 'petition', inplace=True)
-        press_frame.press_type.replace(['Medzinárodná zmluva'], 'intag', inplace=True)
-        press_frame.rename({'num': 'press_num'}, axis='columns', inplace=True)
-        press_frame['date'] = pandas.to_datetime(
-            press_frame['date'], format='%d. %m. %Y')
+        }
 
-        # TODO(add attachments)
-        press_frame = press_frame[[
-            'press_type', 'title', 'press_num', 'date', 'period_num', 'url']]
-        return press_frame
+        wanted_keys = ['press_type', 'title', 'press_num', 'date', 'period_num', 'url', 'type']
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            new_doc = self._copy_doc(doc)
+            new_doc['press_type'] = press_type_replacements[new_doc['press_type']]
+            new_doc = self._get_wanted_keys(new_doc, wanted_keys)
+            new_docs.append(new_doc)
 
+        if new_docs:
+            self._insert_documents(new_docs)
 
     def transform_sessions(self):
         """
@@ -315,48 +318,11 @@ class NRSRTransformOperator(BaseOperator):
                     'text3': point['text'][2],
                 })
             new_doc['program_points'] = program_points
-            new_doc = {k: v for k, v in new_doc.items() if k in wanted_keys}
+            new_doc = self._get_wanted_keys(new_doc, wanted_keys)
             new_docs.append(new_doc)
 
         if new_docs:
             self._insert_documents(new_docs)
-
-    # TODO(Jozef): There is some discrepancy between listed clubs and clubs used in votings,
-    # should be merged into one solution somehow
-    def transform_clubs(self):
-        """
-        Transform Clubs and Club memberships
-        """
-        unwind = {'$unwind': '$members'}
-        projection = {
-            '$project': {
-                '_id': 1,
-                'period_num': 1,
-                'external_id': 1,
-                'url': 1,
-                'name': 1,
-                'email': 1,
-                'member_external_id': '$members.external_id',
-                'membership': '$members.membership'
-            }
-        }
-        docs = list(self._get_documents({}, unwind=unwind, projection=projection))
-        print("Clubs: {}".format(len(docs)))
-
-        club_frame = pandas.DataFrame(docs)
-        if club_frame.empty:
-            return club_frame
-
-        club_frame.replace(["predsedníčka", "predseda"], 'chairman', inplace=True)
-        club_frame.replace(
-            ["podpredsedníčka", "podpredeseda", "podpredseda"], 'vice-chairman', inplace=True)
-        club_frame.replace(["člen", "členka"], 'member', inplace=True)
-
-        club_frame = club_frame[[
-            'external_id', 'period_num', 'name', 'email', 'url',
-            'member_external_id', 'membership'
-        ]]
-        return club_frame
 
     def transform_club_members(self):
         """
@@ -513,13 +479,54 @@ class NRSRTransformOperator(BaseOperator):
             'current_result',
             'category_name',
             'url',
+            'type',
         ]
 
         fields_dict = {x: 1 for x in fields_list}
 
-        docs = list(self._get_documents(fields_dict))
+        current_state_replacements = {
+            "Evidencia": 0,
+            "Uzavretá úloha": 1,
+            "Rokovanie NR SR": 8,
+            "Rokovanie gestorského výboru": 9,
+            "I. čítanie": 2,
+            "II. čítanie": 3,
+            "III. čítanie": 4,
+            "Redakcia": 5,
+            "Výber poradcov k NZ": 10,
+            "Stanovisko k NZ": 7
+        }
 
-        for doc in docs:
+        current_result_replacements = {
+            "(NR SR nebude pokračovať v rokovaní o návrhu zákona)": 0,
+            "(NZ vzal navrhovateľ späť)": 1,
+            "(Zákon vyšiel v Zbierke zákonov)": 7,
+            "(NZ nebol schválený)": 5,
+            "(Zákon bol vrátený prezidentom)": 8,
+            "(Zápis spoločnej správy výborov)": 4,
+            "(Zapísané uznesenie výboru)": 9,
+            "(NZ postúpil do II. čítania)": 11,
+            "(NZ postúpil do redakcie)": 3,
+            "(Výber právneho poradcu)": 10,
+            "(Pripravená informácia k NZ)": 6
+        }
+
+        category_name_replacements = {
+            "Novela zákona": 0,
+            "Návrh nového zákona": 1,
+            "Iný typ": 2,
+            "Petícia": 3,
+            "Medzinárodná zmluva": 4,
+            "Správa": 5,
+            "Ústavný zákon": 6,
+            "Informácia": 7,
+            "Návrh zákona o štátnom rozpočte": 8,
+            "Zákon vrátený prezidentom": 9,
+
+        }
+
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
             press_title = ''
             press_num = ''
             if 'press_num' in doc:
@@ -583,85 +590,40 @@ class NRSRTransformOperator(BaseOperator):
                 pg_conn.close()
                 doc['proposers'] = ','.join(map(str, proposers)) if proposers else ''
 
+            new_doc = self._copy_doc(doc)
+            new_doc['current_state'] = current_state_replacements[new_doc['current_state']]
+            new_doc['current_result'] = current_result_replacements[new_doc['current_result']]
+            new_doc['category_name'] = category_name_replacements[new_doc['category_name']]
 
-        bill_frame = pandas.DataFrame(docs)
-        if bill_frame.empty:
-            return bill_frame
+            new_doc = self._get_wanted_keys(new_doc, [
+                'type', 'period_num', 'press_num', 'external_id', 'delivered',
+                'current_state', 'current_result', 'proposers',
+                'proposer_nonmember', 'category_name', 'url'
+            ])
+            new_docs.append(new_doc)
 
-        bill_frame[['current_state', 'current_result']] = bill_frame[[
-            'current_state', 'current_result']].where(
-                bill_frame[['current_state', 'current_result']].notnull(), 'null')
 
-        bill_frame.current_state.replace({
-            "Evidencia": '0',
-            "Uzavretá úloha": '1',
-            "Rokovanie NR SR": '8',
-            "Rokovanie gestorského výboru": '9',
-            "I. čítanie": '2',
-            "II. čítanie": '3',
-            "III. čítanie": '4',
-            "Redakcia": '5',
-            "Výber poradcov k NZ": '10',
-            "Stanovisko k NZ": '7'
-        }, inplace=True)
-
-        bill_frame.current_result.replace({
-            "(NR SR nebude pokračovať v rokovaní o návrhu zákona)": '0',
-            "(NZ vzal navrhovateľ späť)": '1',
-            "(Zákon vyšiel v Zbierke zákonov)": '7',
-            "(NZ nebol schválený)": '5',
-            "(Zákon bol vrátený prezidentom)": '8',
-            "(Zápis spoločnej správy výborov)": '4',
-            "(Zapísané uznesenie výboru)": '9',
-            "(NZ postúpil do II. čítania)": '11',
-            "(NZ postúpil do redakcie)": '3',
-            "(Výber právneho poradcu)": '10',
-            "(Pripravená informácia k NZ)": '6'
-        }, inplace=True)
-
-        bill_frame.category_name.replace({
-            "Novela zákona": '0',
-            "Návrh nového zákona": '1',
-            "Iný typ": '2',
-            "Petícia": '3',
-            "Medzinárodná zmluva": '4',
-            "Správa": '5',
-            "Ústavný zákon": '6',
-            "Informácia": '7',
-            "Návrh zákona o štátnom rozpočte": '8',
-            "Zákon vrátený prezidentom": '9',
-
-        }, inplace=True)
-
-        bill_frame = bill_frame[[
-            'period_num', 'press_num', 'external_id', 'delivered',
-            'current_state', 'current_result', 'proposers',
-            'proposer_nonmember', 'category_name', 'url'
-        ]]
-        return bill_frame
+        if new_docs:
+            self._insert_documents(new_docs)
 
     def execute(self, context):
         """Operator Executor"""
-        data_frame = None
         if self.data_type == 'member':
-            data_frame = self.transform_members()
+            self.transform_members()
         elif self.data_type == 'member_change':
-            data_frame = self.transform_member_changes()
+            self.transform_member_changes()
         elif self.data_type == 'press':
-            data_frame = self.transform_presses()
+            self.transform_presses()
         elif self.data_type == 'session':
-            data_frame = self.transform_sessions()
+            self.transform_sessions()
         # elif self.data_type == 'club':
         #     data_frame = self.transform_clubs()
         elif self.data_type == 'daily_club':
-            data_frame = self.transform_club_members()
+            self.transform_club_members()
         elif self.data_type == 'voting':
-            data_frame = self.transform_votings()
+            self.transform_votings()
         elif self.data_type == 'bill':
-            data_frame = self.transform_bills()
-
-        # if not data_frame.empty:
-        #     data_frame.to_csv('{}/{}.csv'.format(self.file_dest, self.data_type), index=False)
+            self.transform_bills()
 
 
 class NRSRTransformPlugin(AirflowPlugin):
