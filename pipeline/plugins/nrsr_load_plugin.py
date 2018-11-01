@@ -352,8 +352,6 @@ class NRSRLoadOperator(BaseOperator):
                 SELECT id, period_num FROM parliament_period WHERE period_num IN ({})
                 """.format(', '.join(map(str, distinct_periods)))
             )
-            period_rows = pg_cursor.fetchall()
-            periods = {x[1]: x[0] for x in period_rows}
 
             # insert clubs
             club_query = """
@@ -409,51 +407,65 @@ class NRSRLoadOperator(BaseOperator):
 
     def load_votings(self):
         """Load Votings and Votes"""
-        if not self.data_frame.empty:
-            pg_conn = None
-            try:
-                pg_conn = psycopg2.connect(self.postgres_url)
-                pg_cursor = pg_conn.cursor()
-                self.data_frame = self.data_frame.where(self.data_frame.notnull(), 'null')
-                # TODO(Jozef): optimize the following weak query
-                for _, row in self.data_frame.iterrows():
-                    row['topic'] = row['topic'].replace("'", "''")
-                    query = """
-                    INSERT INTO parliament_voting(external_id, session_id, press_id, voting_num, topic, timestamp, result, url)
-                    VALUES (
-                        {external_id},
-                        (
-                            SELECT S.id FROM parliament_session S
-                            INNER JOIN parliament_period P ON S.period_id = P.id
-                            WHERE P.period_num = {period_num}
-                            AND S.session_num = {session_num}
-                        ),
-                        (
-                            SELECT P.id FROM parliament_press P
-                            INNER JOIN parliament_period PE ON P.period_id = PE.id
-                            WHERE PE.period_num = {period_num}
-                            AND P.press_num = '{press_num}'
-                        ),
-                        {voting_num},
-                        '{topic}',
-                        '{datetime}',
-                        '{result}',
-                        '{url}'
-                    ) ON CONFLICT DO NOTHING;
-                    INSERT INTO parliament_votingvote(voting_id, person_id, vote)
-                    VALUES (
-                        (SELECT id FROM parliament_voting WHERE external_id = {external_id}),
-                        (SELECT id FROM person_person WHERE external_id = {member_external_id}),
-                        '{vote}'
-                    ) ON CONFLICT DO NOTHING;
-                    """.format(**row)
-                    pg_cursor.execute(query)
-                pg_conn.commit()
-            except (Exception, psycopg2.DatabaseError) as error:
-                raise error
-            finally:
-                if pg_conn is not None:
-                    pg_conn.close()
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
+
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            voting_query = """
+                INSERT INTO parliament_voting(external_id, session_id, press_id,
+                                              voting_num, topic, timestamp, result, url)
+                VALUES (
+                    {external_id},
+                    (
+                        SELECT S.id FROM parliament_session S
+                        INNER JOIN parliament_period P ON S.period_id = P.id
+                        WHERE P.period_num = {period_num}
+                        AND S.session_num = {session_num}
+                    ),
+                    (
+                        SELECT P.id FROM parliament_press P
+                        INNER JOIN parliament_period PE ON P.period_id = PE.id
+                        WHERE PE.period_num = {period_num}
+                        AND P.press_num = '{press_num}'
+                    ),
+                    {voting_num},
+                    '{topic}',
+                    '{datetime}',
+                    {result},
+                    '{url}'
+                ) ON CONFLICT DO NOTHING;
+            """
+
+            vote_query = """
+                INSERT INTO parliament_votingvote(voting_id, person_id, vote)
+                VALUES (
+                    (SELECT id FROM parliament_voting WHERE external_id = {voting_external_id}),
+                    (SELECT id FROM person_person WHERE external_id = {external_id}),
+                    '{vote}'
+                ) ON CONFLICT DO NOTHING;
+            """
+
+            for doc in docs:
+                doc['topic'] = doc['topic'].replace("'", "''")
+                if 'press_num' not in doc or not doc['press_num']:
+                    doc['press_num'] = 'NULL'
+                pg_cursor.execute(voting_query.format(**doc))
+
+                for vote in doc['votes']:
+                    pg_cursor.execute(vote_query.format(
+                        voting_external_id=doc['external_id'], **vote))
+
+            pg_conn.commit()
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def load_bills(self):
         """Load Bills"""
