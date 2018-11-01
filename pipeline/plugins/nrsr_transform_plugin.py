@@ -37,10 +37,14 @@ class NRSRTransformOperator(BaseOperator):
         self.mongo_outcol = mongo_db[mongo_settings['outcol']]
         self.postgres_url = postgres_url
 
-    def _insert_documents(self, documents):
+    def _insert_documents(self, documents, remove=[]):
         """
         Insert into MongoDB
         """
+
+        if remove:
+            self.mongo_outcol.remove({'type': {'$in': remove}})
+
         self.mongo_outcol.insert_many(documents)
 
 
@@ -187,7 +191,7 @@ class NRSRTransformOperator(BaseOperator):
             new_doc['residence_id'] = residence_id
             new_docs.append(new_doc)
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
     def transform_member_changes(self):
         """
@@ -221,7 +225,7 @@ class NRSRTransformOperator(BaseOperator):
             new_docs.append(new_doc)
 
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
 
 
@@ -263,29 +267,12 @@ class NRSRTransformOperator(BaseOperator):
             new_docs.append(new_doc)
 
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
     def transform_sessions(self):
         """
         Transform Session data
         """
-
-        # unwind = {'$unwind': '$program_points'}
-        # projection = {
-        #     '$project': {
-        #         '_id': 1,
-        #         'url': 1,
-        #         'period_num': 1,
-        #         'external_id': 1,
-        #         'name': 1,
-        #         'state': '$program_points.state',
-        #         'progpoint': '$program_points.progpoint',
-        #         'parlpress': '$program_points.parlpress',
-        #         'text1': {'$arrayElemAt': ['$program_points.text', 0]},
-        #         'text2': {'$arrayElemAt': ['$program_points.text', 1]},
-        #         'text3': {'$arrayElemAt': ['$program_points.text', 2]},
-        #     }
-        # }
 
         fields_list = ['url', 'period_num', 'external_id', 'name', 'program_points', 'type']
         fields_dict = {x: 1 for x in fields_list}
@@ -322,7 +309,7 @@ class NRSRTransformOperator(BaseOperator):
             new_docs.append(new_doc)
 
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
     def transform_club_members(self):
         """
@@ -415,7 +402,7 @@ class NRSRTransformOperator(BaseOperator):
             })
 
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
     def transform_votings(self):
         """
@@ -461,7 +448,7 @@ class NRSRTransformOperator(BaseOperator):
             new_docs.append(new_doc)
 
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
 
     def transform_bills(self):
@@ -604,7 +591,7 @@ class NRSRTransformOperator(BaseOperator):
 
 
         if new_docs:
-            self._insert_documents(new_docs)
+            self._insert_documents(new_docs, remove=[self.data_type])
 
     def execute(self, context):
         """Operator Executor"""
