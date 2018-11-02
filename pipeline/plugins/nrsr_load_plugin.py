@@ -501,7 +501,7 @@ class NRSRLoadOperator(BaseOperator):
             """
 
             proposer_query = """
-            INSERT INTO parliament_bill_proposers (bill_id, member_id)
+            INSERT INTO parliament_billproposer (bill_id, member_id)
             VALUES (
                 (
                     SELECT id FROM parliament_bill WHERE external_id = {external_id}
