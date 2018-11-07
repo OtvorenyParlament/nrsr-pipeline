@@ -23,13 +23,12 @@ class NRSRTransformOperator(BaseOperator):
     """
 
     def __init__(self, data_type, period, daily,
-                 postgres_url, mongo_settings, file_dest, *args, **kwargs):
+                 postgres_url, mongo_settings, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.data_type = data_type
         self.period = period
         self.daily = daily
-        self.file_dest = file_dest
 
         mongo_client = MongoClient(mongo_settings['uri'])
         mongo_db = mongo_client[mongo_settings['db']]

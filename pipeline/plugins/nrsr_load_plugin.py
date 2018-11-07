@@ -20,13 +20,12 @@ class NRSRLoadOperator(BaseOperator):
     """
 
     def __init__(self, data_type, period, daily, postgres_url, mongo_settings,
-                 file_src, *args, **kwargs):
+                 *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.data_type = data_type
         self.period = period
         self.daily = daily
-        self.file_src = file_src
         self.data_type = data_type
         self.data_frame = pandas.DataFrame([])
 

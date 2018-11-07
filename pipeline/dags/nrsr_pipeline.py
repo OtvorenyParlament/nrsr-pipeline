@@ -25,7 +25,6 @@ DAILY = False
 PERIOD = 7
 POSTGRES_URL = Variable.get('postgres_url')
 MONGO_SETTINGS = Variable.get('mongo_settings', deserialize_json=True)
-TRANSFORMED_DST = '/tmp'
 SCRAPY_HOME = Variable.get('scrapy_home')
 
 dag = DAG('NRSRPipeline', default_args=default_args)
@@ -130,14 +129,14 @@ extract_debate_appearances = NRSRScrapyOperator(
     dag=dag
 )
 
-# extract_interpelations = NRSRScrapyOperator(
-#     task_id='extract_interpelations',
-#     spider='interpelations',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag
-# )
+extract_interpellations = NRSRScrapyOperator(
+    task_id='extract_interpellations',
+    spider='interpellations',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
 
 # transform data
 
@@ -148,7 +147,6 @@ transform_members = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -159,7 +157,6 @@ transform_member_changes = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -170,7 +167,6 @@ transform_presses = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -181,7 +177,6 @@ transform_sessions = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -192,7 +187,6 @@ transform_votings = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -203,7 +197,6 @@ transform_votings = NRSRTransformOperator(
 #     daily=DAILY,
 #     postgres_url=POSTGRES_URL,
 #     mongo_settings=MONGO_SETTINGS,
-#     file_dest=TRANSFORMED_DST,
 #     dag=dag
 # )
 
@@ -214,7 +207,6 @@ transform_club_members = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -225,7 +217,6 @@ transform_bills = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -236,7 +227,6 @@ transform_bills = NRSRTransformOperator(
 #     daily=DAILY,
 #     postgres_url=POSTGRES_URL,
 #     mongo_settings=MONGO_SETTINGS,
-#     file_dest=TRANSFORMED_DST,
 #     dag=dag
 # )
 
@@ -247,7 +237,6 @@ transform_debate_appearances = NRSRTransformOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_dest=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -259,7 +248,6 @@ load_members = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -270,7 +258,6 @@ load_member_changes = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -281,7 +268,6 @@ load_presses = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -292,7 +278,6 @@ load_sessions = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -303,7 +288,6 @@ load_votings = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -314,7 +298,6 @@ load_club_members = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -325,7 +308,6 @@ load_bills = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -336,7 +318,6 @@ load_debate_appearances = NRSRLoadOperator(
     daily=DAILY,
     postgres_url=POSTGRES_URL,
     mongo_settings=MONGO_SETTINGS,
-    file_src=TRANSFORMED_DST,
     dag=dag
 )
 
@@ -353,6 +334,8 @@ extract_missing_presses.set_upstream(extract_presses)
 extract_bills.set_upstream(extract_missing_presses)
 
 extract_debate_appearances.set_upstream(extract_bills)
+
+extract_interpellations.set_upstream(extract_debate_appearances)
 
 # transforms
 transform_members.set_upstream(extract_members)
