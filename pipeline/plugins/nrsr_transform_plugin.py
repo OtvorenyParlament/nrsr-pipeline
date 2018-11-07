@@ -599,6 +599,111 @@ class NRSRTransformOperator(BaseOperator):
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
+    # def transform_bill_process_steps(self):
+    #     """
+    #     Transform bill process steps
+    #     """
+    #     fields_list = [
+    #         'type',
+
+    #         'period_num',
+
+    #         'external_id',
+    #         'bill_id',
+    #         'body_label',
+    #         'meeting_session_num',
+    #         'meeting_resolution',
+    #         'step_result',
+
+    #         'committees_label',
+    #         'slk_label',
+    #         'coordinator_label',
+    #         'coordinator_meeting_date',??
+    #         'coordinator_name',??
+    #         'discussed_label',
+    #         'sent_standpoint',
+    #         'sent_label',
+    #         'act_num_label'
+
+
+    #         'url'
+    #     ]
+
+
+    def transform_debate_appearances(self):
+        """
+        Debate Appearances
+        """
+        fields_list = [
+            'type',
+            'external_id',
+            'period_num',
+            'debater_name',
+            'debater_party',
+            'debater_role',
+            'start',
+            'end',
+            'session_num',
+            'press_num',
+            'appearance_type',
+            'appearance_type_addition',
+            'video_short_url',
+        ]
+
+        fields_dict = {x: 1 for x in fields_list}
+
+        appearance_type_replacements = {
+            "-": 0,
+            "Doplňujúca otázka / reakcia zadávajúceho": 1,
+            "Prednesenie interpelácie": 2,
+            "Prednesenie otázky": 3,
+            "Uvádzajúci uvádza bod": 4,
+            "Vstup predsedajúceho": 5,
+            "Vystúpenie": 6,
+            "Vystúpenie s faktickou poznámkou": 7,
+            "Vystúpenie s procedurálnym návrhom": 8,
+            "Vystúpenie spoločného spravodajcu": 9,
+            "Vystúpenie v rozprave": 10,
+            "Zodpovedanie otázky": 11,
+        }
+
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            doc['appearance_type'] = appearance_type_replacements[doc['appearance_type']]
+            name_list = doc['debater_name'].split(', ')
+            doc['debater_forename'] = name_list[1]
+            doc['debater_surname'] = name_list[0]
+
+            if 'debater_party' not in doc:
+                doc['debater_party'] = None
+            try:
+                party = re.match(r'^\(+(.+)+\)', doc['debater_party'])
+                if party:
+                    doc['debater_party'] = party.groups()[0]
+            except TypeError:
+                pass
+
+            if 'debater_role' not in doc:
+                doc['debater_role'] = ''
+            doc['debater_role'] = doc['debater_role'][2:]
+
+            if 'NRSR' in doc['debater_role'] or 'NR SR' in doc['debater_role']:
+                doc['parliament_member'] = True
+            else:
+                doc['parliament_member'] = False
+
+            new_docs.append(
+                self._get_wanted_keys(doc, [
+                    'type', 'period_num', 'session_num', 'press_num', 'external_id',
+                    'start', 'end', 'debater_forename', 'debater_surname', 'debater_role',
+                    'parliament_member', 'debater_party', 'appearance_type',
+                    'appearance_type_addition', 'video_short_url'
+                ])
+            )
+        
+        if new_docs:
+            self._insert_documents(new_docs, remove=[self.data_type])
+
     def execute(self, context):
         """Operator Executor"""
         if self.data_type == 'member':
@@ -617,6 +722,10 @@ class NRSRTransformOperator(BaseOperator):
             self.transform_votings()
         elif self.data_type == 'bill':
             self.transform_bills()
+        # elif self.data_type == 'bill_step':
+        #     self.transform_bill_process_steps()
+        elif self.data_type == 'debate_appearance':
+            self.transform_debate_appearances()
 
 
 class NRSRTransformPlugin(AirflowPlugin):

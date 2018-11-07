@@ -17,7 +17,8 @@ default_args = {
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=1),
-    'start_date': datetime(2018, 10, 10)
+    'start_date': datetime(2018, 10, 10),
+    'schedule_interval': '0 0 * * 1-5',
 }
 
 DAILY = False
@@ -28,10 +29,6 @@ TRANSFORMED_DST = '/tmp'
 SCRAPY_HOME = Variable.get('scrapy_home')
 
 dag = DAG('NRSRPipeline', default_args=default_args)
-
-
-def dummy():
-    return True
 
 
 # extract data from nrsr.sk
@@ -115,18 +112,18 @@ extract_votings = NRSRScrapyOperator(
 #     dag=dag
 # )
 
-# extract_debate_appearances = NRSRScrapyOperator(
-#     task_id='extract_debate_appearances',
-#     spider='debate_appearances',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag
-# )
-
 extract_bills = NRSRScrapyOperator(
     task_id='extract_bills',
     spider='bills',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
+
+extract_debate_appearances = NRSRScrapyOperator(
+    task_id='extract_debate_appearances',
+    spider='debate_appearances',
     scrapy_home=SCRAPY_HOME,
     daily=DAILY,
     period=PERIOD,
@@ -232,6 +229,28 @@ transform_bills = NRSRTransformOperator(
     dag=dag
 )
 
+# transform_bill_process_steps = NRSRTransformOperator(
+#     task_id='transform_bill_process_steps',
+#     data_type='bill_step',
+#     period=PERIOD,
+#     daily=DAILY,
+#     postgres_url=POSTGRES_URL,
+#     mongo_settings=MONGO_SETTINGS,
+#     file_dest=TRANSFORMED_DST,
+#     dag=dag
+# )
+
+transform_debate_appearances = NRSRTransformOperator(
+    task_id='transform_debate_appearances',
+    data_type='debate_appearance',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    file_dest=TRANSFORMED_DST,
+    dag=dag
+)
+
 # load data
 load_members = NRSRLoadOperator(
     task_id='load_members',
@@ -322,6 +341,8 @@ extract_missing_presses.set_upstream(extract_presses)
 
 extract_bills.set_upstream(extract_missing_presses)
 
+extract_debate_appearances.set_upstream(extract_bills)
+
 # transforms
 transform_members.set_upstream(extract_members)
 transform_members.set_upstream(extract_missing_members)
@@ -337,38 +358,28 @@ transform_votings.set_upstream(extract_votings)
 transform_club_members.set_upstream(extract_votings)
 
 transform_bills.set_upstream(extract_bills)
+transform_bills.set_upstream(load_presses)
+# transform_bill_process_steps.set_upstream(transform_bills)
+
+transform_debate_appearances.set_upstream(extract_debate_appearances)
 
 # loads
 load_members.set_upstream(transform_members)
 
-
 load_member_changes.set_upstream(transform_member_changes)
 load_member_changes.set_upstream(load_members)
 
-
-
 load_presses.set_upstream(transform_presses)
-
-
 
 load_sessions.set_upstream(load_presses)
 load_sessions.set_upstream(transform_sessions)
-
-
-
 
 load_votings.set_upstream(transform_votings)
 load_votings.set_upstream(load_members)
 load_votings.set_upstream(load_sessions)
 load_votings.set_upstream(load_presses)
 
-
-
 load_club_members.set_upstream(transform_club_members)
 
 load_bills.set_upstream(transform_bills)
 load_bills.set_upstream(load_presses)
-# extract_clubs.set_upstream(extract_votings)
-# transform_clubs.set_upstream(extract_clubs)
-# transform_clubs.set_upstream(load_members)
-# load_clubs.set_upstream(transform_clubs)
