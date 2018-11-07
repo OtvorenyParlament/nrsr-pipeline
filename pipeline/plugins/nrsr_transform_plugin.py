@@ -648,6 +648,7 @@ class NRSRTransformOperator(BaseOperator):
             'appearance_type',
             'appearance_type_addition',
             'video_short_url',
+            'text',
         ]
 
         fields_dict = {x: 1 for x in fields_list}
@@ -673,7 +674,10 @@ class NRSRTransformOperator(BaseOperator):
             name_list = doc['debater_name'].split(', ')
             doc['debater_forename'] = name_list[1]
             doc['debater_surname'] = name_list[0]
-
+            if not 'text' in doc:
+                doc['text'] = ''
+            else:
+                doc['text'] = ''.join(doc['text'])
             if 'debater_party' not in doc:
                 doc['debater_party'] = None
             try:
@@ -697,7 +701,7 @@ class NRSRTransformOperator(BaseOperator):
                     'type', 'period_num', 'session_num', 'press_num', 'external_id',
                     'start', 'end', 'debater_forename', 'debater_surname', 'debater_role',
                     'parliament_member', 'debater_party', 'appearance_type',
-                    'appearance_type_addition', 'video_short_url'
+                    'appearance_type_addition', 'video_short_url', 'text'
                 ])
             )
         

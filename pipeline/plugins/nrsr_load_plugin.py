@@ -532,6 +532,90 @@ class NRSRLoadOperator(BaseOperator):
             if pg_conn is not None:
                 pg_conn.close()
 
+    def load_debate_appearances(self):
+        """Load debate appearances"""
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
+
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            debate_query = """
+                INSERT INTO parliament_debateappearance (
+                    external_id, "start", "end", appearance_type, video_url, appearance_addition,
+                    debater_ext, debater_role, "text", debater_id, session_id
+                ) VALUES (
+                    {external_id},
+                    '{start}',
+                    '{end}',
+                    {appearance_type},
+                    '{video_short_url}',
+                    '{appearance_type_addition}',
+                    '{debater_ext}',
+                    '{debater_role}',
+                    '{text}',
+                    {debater_id},
+                    (
+                        SELECT S.id FROM parliament_session S
+                        INNER JOIN parliament_period P ON S.period_id = P.id
+                        WHERE P.period_num = {period_num}
+                        AND S.session_num = {session_num}
+                    )
+                ) ON CONFLICT DO NOTHING
+            """
+
+            press_query = """
+                INSERT INTO parliament_debateappearance_press_num (debateappearance_id, press_id)
+                VALUES (
+                    (
+                        SELECT D.id FROM parliament_debateappearance D
+                        INNER JOIN parliament_session S ON D.session_id = S.id
+                        INNER JOIN parliament_period P ON P.id = S.period_id
+                        WHERE P.period_num = {period_num} AND S.session_num = {session_num}
+                        AND D.external_id = {external_id}
+                    ),
+                    (
+                        SELECT S.id FROM parliament_press S
+                        INNER JOIN parliament_period P ON S.period_id = P.id
+                        WHERE P.period_num = {period_num} AND S.press_num = '{press_num}'
+                    )
+                ) ON CONFLICT DO NOTHING
+            """
+            for doc in docs:
+                doc['text'] = doc['text'].replace("'", "''")
+                if doc['parliament_member']:
+                    doc['debater_ext'] = ''
+                    doc['debater_id'] = """
+                    (
+                        SELECT id FROM person_person WHERE forename = '{debater_forename}' AND
+                        surname = '{debater_surname}'
+                    )
+                    """.format(**doc)
+                else:
+                    doc['debater_ext'] = '{} {}'.format(
+                        doc['debater_forename'], doc['debater_surname'])
+                    doc['debater_id'] = 'NULL'
+                pg_cursor.execute(debate_query.format(**doc))
+
+                if 'press_num' in doc:
+                    for press in doc['press_num']:
+                        pg_cursor.execute(press_query.format(
+                            period_num=doc['period_num'],
+                            external_id=doc['external_id'],
+                            session_num=doc['session_num'],
+                            press_num=press
+                        ))
+            pg_conn.commit()
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
+
     def execute(self, context):
         """Operator Executor"""
 
@@ -549,7 +633,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_votings()
         elif self.data_type == 'bill':
             self.load_bills()
-
+        elif self.data_type == 'debate_appearance':
+            self.load_debate_appearances()
 
 class NRSRLoadPlugin(AirflowPlugin):
 
