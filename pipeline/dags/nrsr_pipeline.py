@@ -93,15 +93,6 @@ extract_votings = NRSRScrapyOperator(
     dag=dag
 )
 
-# extract_clubs = NRSRScrapyOperator(
-#     task_id='extract_clubs',
-#     spider='clubs',
-#     scrapy_home=SCRAPY_HOME,
-#     daily=DAILY,
-#     period=PERIOD,
-#     dag=dag)
-
-
 # extract_hour_of_questions = NRSRScrapyOperator(
 #     task_id='extract_hour_of_questions',
 #     spider='hqa',
@@ -132,6 +123,15 @@ extract_debate_appearances = NRSRScrapyOperator(
 extract_interpellations = NRSRScrapyOperator(
     task_id='extract_interpellations',
     spider='interpellations',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
+
+extract_amendments = NRSRScrapyOperator(
+    task_id='extract_amendments',
+    spider='amendments',
     scrapy_home=SCRAPY_HOME,
     daily=DAILY,
     period=PERIOD,
@@ -336,6 +336,8 @@ extract_bills.set_upstream(extract_missing_presses)
 extract_debate_appearances.set_upstream(extract_bills)
 
 extract_interpellations.set_upstream(extract_debate_appearances)
+
+extract_amendments.set_upstream(extract_interpellations)
 
 # transforms
 transform_members.set_upstream(extract_members)
