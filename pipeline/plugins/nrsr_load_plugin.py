@@ -441,10 +441,15 @@ class NRSRLoadOperator(BaseOperator):
             """
 
             vote_query = """
-                INSERT INTO parliament_votingvote(voting_id, person_id, vote)
+                INSERT INTO parliament_votingvote(voting_id, voter_id, vote)
                 VALUES (
                     (SELECT id FROM parliament_voting WHERE external_id = {voting_external_id}),
-                    (SELECT id FROM person_person WHERE external_id = {external_id}),
+                    (
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN person_person P ON M.person_id = P.id
+                        INNER JOIN parliament_period E ON M.period_id = E.id
+                        WHERE P.external_id = {external_id} AND E.period_num = {period_num}
+                    ),
                     '{vote}'
                 ) ON CONFLICT DO NOTHING;
             """
@@ -457,7 +462,7 @@ class NRSRLoadOperator(BaseOperator):
 
                 for vote in doc['votes']:
                     pg_cursor.execute(vote_query.format(
-                        voting_external_id=doc['external_id'], **vote))
+                        voting_external_id=doc['external_id'], period_num=doc['period_num'], **vote))
 
             pg_conn.commit()
         except (Exception, psycopg2.DatabaseError) as error:
@@ -589,8 +594,12 @@ class NRSRLoadOperator(BaseOperator):
                     doc['debater_ext'] = ''
                     doc['debater_id'] = """
                     (
-                        SELECT id FROM person_person WHERE forename = '{debater_forename}' AND
-                        surname = '{debater_surname}'
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN person_person P ON M.person_id = P.id
+                        INNER JOIN parliament_period E ON M.period_id = E.id
+                         WHERE P.forename = '{debater_forename}' AND
+                        P.surname = '{debater_surname}'
+                        AND E.period_num = {period_num}
                     )
                     """.format(**doc)
                 else:
