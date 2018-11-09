@@ -351,6 +351,16 @@ load_interpellations = NRSRLoadOperator(
     dag=dag
 )
 
+load_amendments = NRSRLoadOperator(
+    task_id='load_amendments',
+    data_type='amendment',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 # extracts
 extract_member_changes.set_upstream(extract_members)
 extract_missing_members.set_upstream(extract_member_changes)
@@ -423,3 +433,8 @@ load_interpellations.set_upstream(transform_interpellations)
 load_interpellations.set_upstream(load_members)
 load_interpellations.set_upstream(load_sessions)
 load_interpellations.set_upstream(load_presses)
+
+load_amendments.set_upstream(transform_amendments)
+load_amendments.set_upstream(load_members)
+load_amendments.set_upstream(load_sessions)
+load_amendments.set_upstream(load_presses)

@@ -664,7 +664,7 @@ class NRSRLoadOperator(BaseOperator):
                     {interpellation_session},
                     {response_session},
                     {press}
-                )
+                ) ON CONFLICT DO NOTHING
             """
             for doc in docs:
                 doc['recipients'] = "'{0}'".format("', '".join(doc['recipients']))
@@ -713,6 +713,109 @@ class NRSRLoadOperator(BaseOperator):
             if pg_conn is not None:
                 pg_conn.close()
 
+    def load_amendments(self):
+        """Load Amendments"""
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
+
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            main_query = """
+                INSERT INTO parliament_amendment (external_id, session_id, press_id, "date",
+                                                  submitter_id, voting_id, url, title)
+                VALUES (
+                    {external_id},
+                    (
+                        SELECT S.id FROM parliament_session S
+                        INNER JOIN parliament_period P ON S.period_id = P.id
+                        WHERE P.period_num = {period_num}
+                        AND S.session_num = {session_num}
+                    ),
+                    (
+                        SELECT P.id FROM parliament_press P
+                        INNER JOIN parliament_period E ON P.period_id = E.id
+                        WHERE P.press_num = '{press_num}'
+                        AND E.period_num = {period_num}
+                    ),
+                    '{date}',
+                    (
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN parliament_period E ON M.period_id = E.id
+                        INNER JOIN person_person P ON M.person_id = P.id
+                        WHERE E.period_num = {period_num}
+                        AND P.forename = '{submitter_forename}'
+                        AND P.surname = '{submitter_surname}'
+                    ),
+                    {voting},
+                    '{url}',
+                    '{title}'
+
+                ) ON CONFLICT DO NOTHING
+            """
+
+            related_query = """
+                INSERT INTO parliament_amendment{table_suffix} (amendment_id, member_id)
+                VALUES (
+                    (
+                        SELECT id FROM parliament_amendment WHERE external_id = {external_id}
+                    ),
+                    (
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN parliament_period E ON M.period_id = E.id
+                        INNER JOIN person_person P ON M.person_id = P.id
+                        WHERE E.period_num = {period_num}
+                        AND P.forename = '{forename}'
+                        AND P.surname = '{surname}'
+                    )
+                ) ON CONFLICT DO NOTHING
+            """
+
+            for doc in docs:
+                doc['submitter_forename'], doc['submitter_surname'] = doc['submitter']
+
+                if 'voting_external_id' in doc:
+                    doc['voting'] = """
+                    (
+                        SELECT id FROM parliament_voting WHERE external_id = {}
+                    )
+                    """.format(doc['voting_external_id'])
+                else:
+                    doc['voting'] = 'NULL'
+                pg_cursor.execute(main_query.format(**doc))
+
+                if 'other_submitters' in doc:
+                    for submitter in doc['other_submitters']:
+                        pg_cursor.execute(related_query.format(
+                            table_suffix='submitter',
+                            external_id=doc['external_id'],
+                            forename=submitter[0],
+                            surname=submitter[1],
+                            period_num=doc['period_num']
+                        ))
+                
+                if 'signed_members' in doc:
+                    for member in doc['signed_members']:
+                        pg_cursor.execute(related_query.format(
+                            table_suffix='signedmember',
+                            external_id=doc['external_id'],
+                            forename=member[0],
+                            surname=member[1],
+                            period_num=doc['period_num']
+                        ))
+            
+            pg_conn.commit()
+
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
+
 
     def execute(self, context):
         """Operator Executor"""
@@ -735,6 +838,10 @@ class NRSRLoadOperator(BaseOperator):
             self.load_debate_appearances()
         elif self.data_type == 'interpellation':
             self.load_interpellations()
+        elif self.data_type == 'amendment':
+            self.load_amendments()
+        else:
+            raise Exception("unknown data_type {}".format(self.data_type))
 
 class NRSRLoadPlugin(AirflowPlugin):
 
