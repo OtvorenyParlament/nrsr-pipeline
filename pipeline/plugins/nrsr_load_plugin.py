@@ -624,6 +624,96 @@ class NRSRLoadOperator(BaseOperator):
             if pg_conn is not None:
                 pg_conn.close()
 
+    def load_interpellations(self):
+        """Load Interpellations"""
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
+
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            query = """
+                INSERT INTO parliament_interpellation (external_id, period_id, "date",
+                                                        asked_by_id, status, responded_by,
+                                                        recipients, url, description,
+                                                        interpellation_session_id,
+                                                        response_session_id,
+                                                        press_id)
+                VALUES (
+                    {external_id},
+                    (
+                        SELECT id FROM parliament_period WHERE period_num = {period_num}
+                    ),
+                    '{date}',
+                    (
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN person_person P ON M.person_id = P.id
+                        INNER JOIN parliament_period E ON M.period_id = E.id
+                        WHERE E.period_num = {period_num}
+                        AND P.forename = '{asked_by_forename}'
+                        AND P.surname = '{asked_by_surname}'
+                    ),
+                    {status},
+                    '{responded_by}',
+                    ARRAY[{recipients}],
+                    '{url}',
+                    '{description}',
+                    {interpellation_session},
+                    {response_session},
+                    {press}
+                )
+            """
+            for doc in docs:
+                doc['recipients'] = "'{0}'".format("', '".join(doc['recipients']))
+                if not 'responded_by' in doc:
+                    doc['responded_by'] = ''
+                if 'interpellation_session_num' in doc:
+                    doc['interpellation_session'] = """
+                    (
+                        SELECT S.id FROM parliament_session S
+                        INNER JOIN parliament_period P ON S.period_id = P.id
+                        WHERE P.period_num = {period_num}
+                        AND S.session_num = {interpellation_session_num}
+                    )
+                    """.format(**doc)
+                else:
+                    doc['interpellation_session'] = 'NULL'
+                
+                if 'response_session_num' in doc:
+                    doc['response_session'] = """
+                    (
+                        SELECT S.id FROM parliament_session S
+                        INNER JOIN parliament_period P ON S.period_id = P.id
+                        WHERE P.period_num = {period_num}
+                        AND S.session_num = {response_session_num}
+                    )
+                    """.format(**doc)
+                else:
+                    doc['response_session'] = 'NULL'
+                if 'press_num' in doc:
+                    doc['press'] = """
+                    (
+                        SELECT P.id FROM parliament_press P
+                        INNER JOIN parliament_period E ON P.period_id = E.id
+                        WHERE E.period_num = {period_num}
+                        AND P.press_num = '{press_num}'
+                    )
+                    """.format(**doc)
+                else:
+                    doc['press'] = 'NULL'
+                pg_cursor.execute(query.format(**doc))
+            pg_conn.commit()
+        
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
+
+
     def execute(self, context):
         """Operator Executor"""
 
@@ -643,6 +733,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_bills()
         elif self.data_type == 'debate_appearance':
             self.load_debate_appearances()
+        elif self.data_type == 'interpellation':
+            self.load_interpellations()
 
 class NRSRLoadPlugin(AirflowPlugin):
 

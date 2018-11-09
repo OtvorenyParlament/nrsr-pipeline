@@ -341,6 +341,16 @@ load_debate_appearances = NRSRLoadOperator(
     dag=dag
 )
 
+load_interpellations = NRSRLoadOperator(
+    task_id='load_interpellations',
+    data_type='interpellation',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 # extracts
 extract_member_changes.set_upstream(extract_members)
 extract_missing_members.set_upstream(extract_member_changes)
@@ -408,3 +418,8 @@ load_debate_appearances.set_upstream(transform_debate_appearances)
 load_debate_appearances.set_upstream(load_members)
 load_debate_appearances.set_upstream(load_presses)
 load_debate_appearances.set_upstream(load_sessions)
+
+load_interpellations.set_upstream(transform_interpellations)
+load_interpellations.set_upstream(load_members)
+load_interpellations.set_upstream(load_sessions)
+load_interpellations.set_upstream(load_presses)
