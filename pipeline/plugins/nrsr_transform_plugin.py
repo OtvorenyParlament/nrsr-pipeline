@@ -36,6 +36,12 @@ class NRSRTransformOperator(BaseOperator):
         self.mongo_outcol = mongo_db[mongo_settings['outcol']]
         self.postgres_url = postgres_url
 
+    def _fields_to_dict(self, fields):
+        """
+        Convert list of fields to mongodb field dict
+        """
+        return {x: 1 for x in fields}
+
     def _insert_documents(self, documents, remove=[]):
         """
         Insert into MongoDB
@@ -45,7 +51,6 @@ class NRSRTransformOperator(BaseOperator):
             self.mongo_outcol.remove({'type': {'$in': remove}})
 
         self.mongo_outcol.insert_many(documents)
-
 
     def _get_documents(self, fields_dict, *aggregation, unwind=None, projection=None):
         """
@@ -101,7 +106,7 @@ class NRSRTransformOperator(BaseOperator):
             'memberships',
             'type'
         ]
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         new_docs = []
 
@@ -204,7 +209,7 @@ class NRSRTransformOperator(BaseOperator):
             'change_reason',
             'type'
         ]
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         new_docs = []
         change_type = {
@@ -245,7 +250,7 @@ class NRSRTransformOperator(BaseOperator):
             'type'
         ]
 
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         press_type_replacements = {
             'Návrh zákona': 1,
@@ -274,7 +279,7 @@ class NRSRTransformOperator(BaseOperator):
         """
 
         fields_list = ['url', 'period_num', 'external_id', 'name', 'program_points', 'type']
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         state_replacements = {
             'Prerokovaný bod programu': 0,
@@ -431,7 +436,7 @@ class NRSRTransformOperator(BaseOperator):
             'external_id', 'topic', 'datetime', 'session_num', 'voting_num',
             'result', 'period_num', 'press_num', 'url', 'votes', 'type'
         ]
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         result_replacements = {
             "Návrh prešiel": 0,
@@ -468,7 +473,7 @@ class NRSRTransformOperator(BaseOperator):
             'type',
         ]
 
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         current_state_replacements = {
             "Evidencia": 0,
@@ -650,7 +655,7 @@ class NRSRTransformOperator(BaseOperator):
             'text',
         ]
 
-        fields_dict = {x: 1 for x in fields_list}
+        fields_dict = self._fields_to_dict(fields_list)
 
         appearance_type_replacements = {
             "-": 0,
@@ -707,6 +712,84 @@ class NRSRTransformOperator(BaseOperator):
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
+    def transform_interpellations(self):
+        """
+        Transform Interpellations
+        """
+        fields_list = [
+            'type',
+            'external_id',
+            'period_num',
+            'status',
+            'asked_by',
+            'description',
+            'recipients',
+            'date',
+            'responded_by',
+            'interpellation_session_num',
+            'response_session_num',
+            'responded_by',
+            'press_num',
+            'url'
+        ]
+        fields_dict = self._fields_to_dict(fields_list)
+
+        status_replacements = {
+            "Príjem odpovede na interpeláciu": 0,
+            "Rokovanie o interpelácii": 1,
+            "Uzavretá odpoveď na interpeláciu": 2,
+        }
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            doc['status'] = status_replacements[doc['status']]
+            asked_list = doc['asked_by'].split(', ')
+            doc['asked_by_forename'] = asked_list[1]
+            doc['asked_by_surname'] = asked_list[0]
+
+            new_docs.append(
+                self._get_wanted_keys(doc, [
+                    'type', 'external_id', 'period_num', 'status',
+                    'asked_by_forename', 'asked_by_surname', 'description',
+                    'recipients', 'date', 'responded_by', 'interpellation_session_num',
+                    'response_session_num', 'responded_by', 'press_num', 'url'
+                ])
+            )
+        
+        if new_docs:
+            self._insert_documents(new_docs, remove=[self.data_type])
+
+    def transform_amendments(self):
+        """Transform amendments"""
+        fields_list = [
+            'type',
+            'external_id',
+            'period_num',
+            'press_num',
+            'session_num',
+            'title',
+            'submitter',
+            'other_submitters',
+            'date',
+            'signed_members',
+            'voting_external_id',
+            'url'
+        ]
+
+        fields_dict = self._fields_to_dict(fields_list)
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            doc['submitter'] = doc['submitter'].split(', ')[::-1]
+
+            if 'other_submitters' in doc:
+                doc['other_submitters'] = [x.split(', ')[::-1] for x in doc['other_submitters']]
+            
+            if 'signed_members' in doc:
+                doc['signed_members'] = [x.split(', ')[::-1] for x in doc['signed_members']]
+            new_docs.append(self._get_wanted_keys(doc, fields_list))
+        
+        if new_docs:
+            self._insert_documents(new_docs, remove=[self.data_type])
+
     def execute(self, context):
         """Operator Executor"""
         if self.data_type == 'member':
@@ -729,6 +812,10 @@ class NRSRTransformOperator(BaseOperator):
         #     self.transform_bill_process_steps()
         elif self.data_type == 'debate_appearance':
             self.transform_debate_appearances()
+        elif self.data_type == 'interpellation':
+            self.transform_interpellations()
+        elif self.data_type == 'amendment':
+            self.transform_amendments()
 
 
 class NRSRTransformPlugin(AirflowPlugin):

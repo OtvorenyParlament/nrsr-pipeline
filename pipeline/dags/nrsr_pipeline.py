@@ -240,6 +240,26 @@ transform_debate_appearances = NRSRTransformOperator(
     dag=dag
 )
 
+transform_interpellations = NRSRTransformOperator(
+    task_id='transform_interpellations',
+    data_type='interpellation',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
+transform_amendments = NRSRTransformOperator(
+    task_id='transform_amendments',
+    data_type='amendment',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 # load data
 load_members = NRSRLoadOperator(
     task_id='load_members',
@@ -358,6 +378,10 @@ transform_bills.set_upstream(load_presses)
 # transform_bill_process_steps.set_upstream(transform_bills)
 
 transform_debate_appearances.set_upstream(extract_debate_appearances)
+
+transform_interpellations.set_upstream(extract_interpellations)
+
+transform_amendments.set_upstream(extract_amendments)
 
 # loads
 load_members.set_upstream(transform_members)
