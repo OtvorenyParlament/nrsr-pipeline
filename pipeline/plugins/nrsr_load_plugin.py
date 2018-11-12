@@ -354,10 +354,11 @@ class NRSRLoadOperator(BaseOperator):
 
             # insert clubs
             club_query = """
-                INSERT INTO parliament_club (name, period_id)
+                INSERT INTO parliament_club (name, period_id, coalition)
                 VALUES (
                     '{club}',
-                    (SELECT id FROM parliament_period WHERE period_num = {period_num})
+                    (SELECT id FROM parliament_period WHERE period_num = {period_num}),
+                    FALSE
                 )
                 ON CONFLICT DO NOTHING;
             """
