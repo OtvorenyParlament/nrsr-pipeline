@@ -727,7 +727,7 @@ class NRSRLoadOperator(BaseOperator):
             pg_cursor = pg_conn.cursor()
             main_query = """
                 INSERT INTO parliament_amendment (external_id, session_id, press_id, "date",
-                                                  submitter_id, voting_id, url, title)
+                                                  voting_id, url, title)
                 VALUES (
                     {external_id},
                     (
@@ -743,14 +743,6 @@ class NRSRLoadOperator(BaseOperator):
                         AND E.period_num = {period_num}
                     ),
                     '{date}',
-                    (
-                        SELECT M.id FROM parliament_member M
-                        INNER JOIN parliament_period E ON M.period_id = E.id
-                        INNER JOIN person_person P ON M.person_id = P.id
-                        WHERE E.period_num = {period_num}
-                        AND P.forename = '{submitter_forename}'
-                        AND P.surname = '{submitter_surname}'
-                    ),
                     {voting},
                     '{url}',
                     '{title}'
@@ -758,8 +750,26 @@ class NRSRLoadOperator(BaseOperator):
                 ) ON CONFLICT DO NOTHING
             """
 
-            related_query = """
-                INSERT INTO parliament_amendment{table_suffix} (amendment_id, member_id)
+            submitter_query = """
+                INSERT INTO parliament_amendmentsubmitter (amendment_id, member_id, main)
+                VALUES (
+                    (
+                        SELECT id FROM parliament_amendment WHERE external_id = {external_id}
+                    ),
+                    (
+                        SELECT M.id FROM parliament_member M
+                        INNER JOIN parliament_period E ON M.period_id = E.id
+                        INNER JOIN person_person P ON M.person_id = P.id
+                        WHERE E.period_num = {period_num}
+                        AND P.forename = '{forename}'
+                        AND P.surname = '{surname}'
+                    ),
+                    {main}
+                ) ON CONFLICT DO NOTHING
+            """
+
+            signedmember_query = """
+                INSERT INTO parliament_amendmentsignedmember (amendment_id, member_id)
                 VALUES (
                     (
                         SELECT id FROM parliament_amendment WHERE external_id = {external_id}
@@ -788,20 +798,29 @@ class NRSRLoadOperator(BaseOperator):
                     doc['voting'] = 'NULL'
                 pg_cursor.execute(main_query.format(**doc))
 
+                # main submitter
+                pg_cursor.execute(submitter_query.format(
+                    external_id=doc['external_id'],
+                    forename=doc['submitter_forename'],
+                    surname=doc['submitter_surname'],
+                    period_num=doc['period_num'],
+                    main='TRUE'
+
+                ))
+
                 if 'other_submitters' in doc:
                     for submitter in doc['other_submitters']:
-                        pg_cursor.execute(related_query.format(
-                            table_suffix='submitter',
+                        pg_cursor.execute(submitter_query.format(
                             external_id=doc['external_id'],
                             forename=submitter[0],
                             surname=submitter[1],
-                            period_num=doc['period_num']
+                            period_num=doc['period_num'],
+                            main='FALSE'
                         ))
                 
                 if 'signed_members' in doc:
                     for member in doc['signed_members']:
-                        pg_cursor.execute(related_query.format(
-                            table_suffix='signedmember',
+                        pg_cursor.execute(signedmember_query.format(
                             external_id=doc['external_id'],
                             forename=member[0],
                             surname=member[1],
