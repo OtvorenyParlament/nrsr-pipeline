@@ -392,6 +392,7 @@ transform_sessions.set_upstream(extract_sessions)
 transform_votings.set_upstream(extract_votings)
 
 transform_club_members.set_upstream(extract_votings)
+transform_club_members.set_upstream(load_member_changes)
 
 transform_bills.set_upstream(extract_bills)
 transform_bills.set_upstream(load_presses)

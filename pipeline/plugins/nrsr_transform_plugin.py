@@ -357,53 +357,98 @@ class NRSRTransformOperator(BaseOperator):
                     '_id': {
                         'period_num': '$period_num',
                         'member_external_id': '$club_values',
-                        'club': '$club_name'
+                        'club': '$club_name',
+                        'date': '$date',
                     },
-                    'start': {
-                        '$min': '$date'
-                    },
-                    'end': {
-                        '$max': '$date'
-                    }
-                }
-            }, {
-                '$sort': {
-                    '_id.member': 1,
-                    'start': 1
                 }
             },
             {
                 '$project': {
+                    '_id': '$_id',
                     'period_num': '$_id.period_num',
                     'member_external_id': '$_id.member_external_id',
-                    'club': '$_id.club',
-                    'start': '$start',
-                    'end': {
-                        '$cond': {
-                            'if': {
-                                '$eq': [
-                                    '$end',
-                                    max_voting
-                                ]
-                            },
-                            'then': None,
-                            'else': '$end'
-                        }
-                    }
+                    'date': '$_id.date',
+                    'club': '$_id.club', 
                 }
-            }
+            },
+            {'$sort': {'_id.period_num': 1, '_id.member_external_id': 1, '_id.date': 1}}
         ]
+        member_sequence = {}
+        docs = list(self._get_documents({}, *aggregation))
+        docs_len = len(docs)
+
+        pg_conn = psycopg2.connect(self.postgres_url)
+        pg_cursor = pg_conn.cursor()
+
+        active_query = """
+        SELECT 1 FROM person_person PP
+            INNER JOIN parliament_member PM ON PM.person_id = PP.id
+            INNER JOIN parliament_memberactive PMA ON PMA.member_id = PM.id
+        WHERE PMA.start <= '{date}' AND (PMA.end > '{date}' OR PMA.end IS NULL)
+        AND PP.external_id = {external_id}
+        LIMIT 1
+        """
+
+        for index, doc in enumerate(docs):
+            _id = doc['_id']
+            period_num = _id['period_num']
+            club_key = _id['club']
+            member_key = _id['member_external_id']
+
+            if period_num not in member_sequence:
+                member_sequence[period_num] = {}
+            
+            if club_key not in member_sequence[period_num]:
+                member_sequence[period_num][club_key] = {}
+            
+            if member_key not in member_sequence[period_num][club_key]:
+                member_sequence[period_num][club_key][member_key] = []
+
+            member_link = member_sequence[period_num][club_key][member_key]
+
+            if index < docs_len - 1:
+                next_item = docs[index + 1]['_id']
+            else:
+                next_item = None
+
+            if member_link:
+                # last was ended, create new
+                if member_link[-1][2]:
+                    member_link.append([_id['date'], None, False])
+            else:
+                member_link.append([_id['date'], None, False])
+
+            current = member_link[-1]
+                
+            if next_item and next_item['member_external_id'] == member_key and next_item['club'] != club_key:
+                if _id['date'] == max_voting:
+                    current[1] = None
+                else:
+                    current[1] = _id['date']
+                current[2] = True
+            else:
+                pg_cursor.execute(active_query.format(date=max_voting, external_id=member_key))
+                db_result = pg_cursor.fetchall()
+                if not db_result:
+                    current[1] = _id['date']
+                    current[2] = True
+        
+        if pg_conn is not None:
+            pg_conn.close()
 
         new_docs = []
-        for doc in self._get_documents({}, *aggregation):
-            new_docs.append({
-                'type': 'daily_club',
-                'period_num': doc['period_num'],
-                'member_external_id': doc['member_external_id'],
-                'club': doc['club'],
-                'start': doc['start'],
-                'end': doc['end']
-            })
+        for period_num, clubs in member_sequence.items():
+            for club, members in clubs.items():
+                for member, changes in members.items():
+                    for change in changes:
+                        new_docs.append({
+                            'type': self.data_type,
+                            'period_num': period_num,
+                            'member_external_id': member,
+                            'club': club,
+                            'start': change[0],
+                            'end': change[1],
+                        })
 
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
