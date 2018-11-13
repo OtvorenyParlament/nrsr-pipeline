@@ -420,18 +420,19 @@ class NRSRTransformOperator(BaseOperator):
 
             current = member_link[-1]
                 
-            if next_item and next_item['member_external_id'] == member_key and next_item['club'] != club_key:
-                if _id['date'] == max_voting:
-                    current[1] = None
-                else:
-                    current[1] = _id['date']
-                current[2] = True
-            else:
-                pg_cursor.execute(active_query.format(date=max_voting, external_id=member_key))
-                db_result = pg_cursor.fetchall()
-                if not db_result:
-                    current[1] = _id['date']
+            if next_item:
+                if next_item['member_external_id'] == member_key and next_item['club'] != club_key:
+                    if _id['date'] == max_voting:
+                        current[1] = None
+                    else:
+                        current[1] = _id['date']
                     current[2] = True
+                elif next_item['member_external_id'] != member_key:
+                    pg_cursor.execute(active_query.format(date=max_voting, external_id=member_key))
+                    db_result = pg_cursor.fetchall()
+                    if not db_result:
+                        current[1] = _id['date']
+                        current[2] = True
         
         if pg_conn is not None:
             pg_conn.close()
