@@ -564,6 +564,9 @@ class NRSRTransformOperator(BaseOperator):
 
         new_docs = []
         for doc in self._get_documents(fields_dict):
+            if 'category_name' not in doc:
+                # empty bill with no details
+                continue
             press_title = ''
             press_num = ''
             if 'press_num' in doc:
