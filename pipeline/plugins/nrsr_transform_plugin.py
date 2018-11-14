@@ -61,7 +61,7 @@ class NRSRTransformOperator(BaseOperator):
         if self.period:
             filter_dict['period_num'] = self.period
         if self.daily and self.data_type not in ['daily_club']:
-            now = datetime.utcnow() - timedelta(hours=72)
+            now = datetime.utcnow() - timedelta(days=30)
             filter_dict['_id'] = {'$gte': ObjectId.from_datetime(now)}
 
         if unwind and projection:
