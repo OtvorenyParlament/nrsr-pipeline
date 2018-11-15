@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import logging
 import os
 
-import pandas
 import psycopg2
 from pymongo import MongoClient
 
@@ -26,8 +25,6 @@ class NRSRLoadOperator(BaseOperator):
         self.data_type = data_type
         self.period = period
         self.daily = daily
-        self.data_type = data_type
-        self.data_frame = pandas.DataFrame([])
 
         mongo_client = MongoClient(mongo_settings['uri'])
         mongo_db = mongo_client[mongo_settings['db']]

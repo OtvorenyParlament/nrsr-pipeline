@@ -6,7 +6,8 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.models import Variable
-from airflow.operators import NRSRLoadOperator, NRSRScrapyOperator, NRSRTransformOperator
+from airflow.operators import (
+    NRSRAggregateOperator, NRSRLoadOperator, NRSRScrapyOperator, NRSRTransformOperator)
 from airflow.operators.dummy_operator import DummyOperator
 from airflow.operators.python_operator import PythonOperator
 
@@ -137,6 +138,11 @@ extract_amendments = NRSRScrapyOperator(
     daily=DAILY,
     period=PERIOD,
     dag=dag
+)
+
+wait_for_extracts = DummyOperator(
+    task_id='wait_for_extracts',
+    dag=dag,
 )
 
 # transform data
@@ -367,8 +373,11 @@ wait_for_loads = DummyOperator(
     dag=dag
 )
 
-aggregate = DummyOperator(
+aggregate = NRSRAggregateOperator(
     task_id='aggregate',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
     dag=dag
 )
 
@@ -390,30 +399,40 @@ extract_interpellations.set_upstream(extract_debate_appearances)
 
 extract_amendments.set_upstream(extract_interpellations)
 
+wait_for_extracts.set_upstream(extract_members)
+wait_for_extracts.set_upstream(extract_member_changes)
+wait_for_extracts.set_upstream(extract_sessions)
+wait_for_extracts.set_upstream(extract_votings)
+wait_for_extracts.set_upstream(extract_presses)
+wait_for_extracts.set_upstream(extract_missing_presses)
+wait_for_extracts.set_upstream(extract_bills)
+wait_for_extracts.set_upstream(extract_debate_appearances)
+wait_for_extracts.set_upstream(extract_interpellations)
+wait_for_extracts.set_upstream(extract_amendments)
+
 # transforms
-transform_members.set_upstream(extract_members)
-transform_members.set_upstream(extract_missing_members)
+transform_members.set_upstream(wait_for_extracts)
 
-transform_member_changes.set_upstream(extract_member_changes)
+transform_member_changes.set_upstream(wait_for_extracts)
 
-transform_presses.set_upstream(extract_missing_presses)
+transform_presses.set_upstream(wait_for_extracts)
 
-transform_sessions.set_upstream(extract_sessions)
+transform_sessions.set_upstream(wait_for_extracts)
 
-transform_votings.set_upstream(extract_votings)
+transform_votings.set_upstream(wait_for_extracts)
 
-transform_club_members.set_upstream(extract_votings)
+transform_club_members.set_upstream(wait_for_extracts)
 transform_club_members.set_upstream(load_member_changes)
 
-transform_bills.set_upstream(extract_bills)
+transform_bills.set_upstream(wait_for_extracts)
 transform_bills.set_upstream(load_presses)
 # transform_bill_process_steps.set_upstream(transform_bills)
 
-transform_debate_appearances.set_upstream(extract_debate_appearances)
+transform_debate_appearances.set_upstream(wait_for_extracts)
 
-transform_interpellations.set_upstream(extract_interpellations)
+transform_interpellations.set_upstream(wait_for_extracts)
 
-transform_amendments.set_upstream(extract_amendments)
+transform_amendments.set_upstream(wait_for_extracts)
 
 # loads
 load_members.set_upstream(transform_members)
