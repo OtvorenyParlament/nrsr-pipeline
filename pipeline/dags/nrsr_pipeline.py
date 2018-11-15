@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators import NRSRLoadOperator, NRSRScrapyOperator, NRSRTransformOperator
+from airflow.operators.dummy_operator import DummyOperator
 from airflow.operators.python_operator import PythonOperator
 
 
@@ -21,7 +22,7 @@ default_args = {
     'schedule_interval': '0 0 * * 1-5',
 }
 
-DAILY = False
+DAILY = True
 PERIOD = 7
 POSTGRES_URL = Variable.get('postgres_url')
 MONGO_SETTINGS = Variable.get('mongo_settings', deserialize_json=True)
@@ -361,6 +362,16 @@ load_amendments = NRSRLoadOperator(
     dag=dag
 )
 
+wait_for_loads = DummyOperator(
+    task_id='wait_for_loads',
+    dag=dag
+)
+
+aggregate = DummyOperator(
+    task_id='aggregate',
+    dag=dag
+)
+
 # extracts
 extract_member_changes.set_upstream(extract_members)
 extract_missing_members.set_upstream(extract_member_changes)
@@ -439,3 +450,17 @@ load_amendments.set_upstream(transform_amendments)
 load_amendments.set_upstream(load_members)
 load_amendments.set_upstream(load_sessions)
 load_amendments.set_upstream(load_presses)
+
+
+wait_for_loads.set_upstream(load_members)
+wait_for_loads.set_upstream(load_member_changes)
+wait_for_loads.set_upstream(load_presses)
+wait_for_loads.set_upstream(load_sessions)
+wait_for_loads.set_upstream(load_votings)
+wait_for_loads.set_upstream(load_club_members)
+wait_for_loads.set_upstream(load_bills)
+wait_for_loads.set_upstream(load_debate_appearances)
+wait_for_loads.set_upstream(load_interpellations)
+wait_for_loads.set_upstream(load_amendments)
+
+aggregate.set_upstream(wait_for_loads)
