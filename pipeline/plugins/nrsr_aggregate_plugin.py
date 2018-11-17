@@ -73,14 +73,17 @@ class NRSRAggregateOperator(BaseOperator):
         # TODO(Jozef): learn how to get rid of floor(epoch/count)
         query = """
         SELECT DATE(PDA."start") AS "date", DPC.id AS club_id,
-                CASE
-                    WHEN (BPC.coalition IS TRUE) THEN (FLOOR(SUM(EXTRACT(epoch FROM (PDA."end"::timestamp - PDA."start"::timestamp))) / COUNT(PDA.id)))
-                    ELSE 0
-                END AS debate_seconds_coalition,
-		        CASE
-                    WHEN (BPC.coalition IS FALSE) THEN (FLOOR(SUM(EXTRACT(epoch FROM (PDA."end"::timestamp - PDA."start"::timestamp))) / COUNT(PDA.id)))
-                    ELSE 0
-                END AS debate_seconds_opposition,
+                -- broken second calculations, skip for now
+                0 AS debate_seconds_coalition,
+                0 AS debate_seconds_opposition,
+                --CASE
+                --    WHEN (BPC.coalition IS TRUE) THEN (FLOOR(SUM(EXTRACT(epoch FROM (PDA."end"::timestamp - PDA."start"::timestamp))) / COUNT(PDA.id)))
+                --    ELSE 0
+                --END AS debate_seconds_coalition,
+		         --CASE
+                --    WHEN (BPC.coalition IS FALSE) THEN (FLOOR(SUM(EXTRACT(epoch FROM (PDA."end"::timestamp - PDA."start"::timestamp))) / COUNT(PDA.id)))
+                --    ELSE 0
+                --END AS debate_seconds_opposition,
                 COUNT(DISTINCT PDA.id) FILTER (WHERE BPC.coalition IS TRUE) AS debate_count_coalition,
                 COUNT(DISTINCT PDA.id) FILTER (WHERE BPC.coalition IS FALSE) AS debate_count_opposition,
                 COUNT(DISTINCT DPM.id) FILTER (WHERE BPC.coalition IS TRUE) AS debater_count_coalition,
