@@ -100,7 +100,7 @@ class NRSRTransformOperator(BaseOperator):
             # 'residence',
             # 'county',
             # 'email',
-            # 'image_urls',
+            'image_urls',
             'period_num',
             'url',
             'memberships',
@@ -142,16 +142,17 @@ class NRSRTransformOperator(BaseOperator):
         #     'external_photo_url', 'stood_for_party', 'url', 'type'
         # ]
         wanted_keys = [
-            'external_id', 'period_num', 'forename', 'surname', 'stood_for_party', 'url', 'type']
+            'external_id', 'external_photo_url', 'period_num',
+            'forename', 'surname', 'stood_for_party', 'url', 'type'
+        ]
 
         for doc in self._get_documents(fields_dict):
             new_doc = self._copy_doc(doc)
             for key, val in new_doc.items():
                 if isinstance(val, str):
                     new_doc[key] = val.strip()
+            new_doc['external_photo_url'] = new_doc['image_urls'][0]
             # GDPR
-            # new_doc['external_photo_url'] = new_doc['image_urls'][0]
-
             # if new_doc['residence'] in residence_replacements:
             #     new_doc['residence'] = residence_replacements[new_doc['residence']]
 

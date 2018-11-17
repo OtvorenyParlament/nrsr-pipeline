@@ -88,7 +88,7 @@ class NRSRLoadOperator(BaseOperator):
                     NULL,
                     '',
                     '',
-                    '',
+                    '{external_photo_url}',
                     {external_id},
                     NULL
                 )
