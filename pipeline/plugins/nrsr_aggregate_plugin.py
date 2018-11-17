@@ -82,7 +82,9 @@ class NRSRAggregateOperator(BaseOperator):
                     ELSE 0
                 END AS debate_seconds_opposition,
                 COUNT(DISTINCT PDA.id) FILTER (WHERE BPC.coalition IS TRUE) AS debate_count_coalition,
-                COUNT(DISTINCT PDA.id) FILTER (WHERE BPC.coalition IS FALSE) AS debate_count_opposition
+                COUNT(DISTINCT PDA.id) FILTER (WHERE BPC.coalition IS FALSE) AS debate_count_opposition,
+                COUNT(DISTINCT DPM.id) FILTER (WHERE BPC.coalition IS TRUE) AS debater_count_coalition,
+		        COUNT(DISTINCT DPM.id) FILTER (WHERE BPC.coalition IS FALSE) AS debater_count_opposition
             FROM parliament_debateappearance PDA
             INNER JOIN parliament_debateappearance_press_num PDAPN ON PDAPN.debateappearance_id = PDA.id
             -- bill joins
@@ -195,11 +197,14 @@ class NRSRAggregateOperator(BaseOperator):
             'amendment_opposition': 0,
             'amendment_government': 0,
             'amendment_committee': 0,
+            'debater_count_coalition': 0,
+            'debater_count_opposition': 0,
+            'debater_count_government': 0,
+            'debater_count_committee': 0,
             'debate_count_coalition': 0,
             'debate_count_opposition': 0,
             'debate_count_government': 0,
             'debate_count_committee': 0,
-            'debate_member_count': 0,
             'debate_seconds_coalition': 0,
             'debate_seconds_opposition': 0,
             'debate_seconds_government': 0,
