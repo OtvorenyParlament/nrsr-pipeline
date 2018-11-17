@@ -45,21 +45,52 @@ class NRSRLoadOperator(BaseOperator):
         try:
             pg_conn = psycopg2.connect(self.postgres_url)
             pg_cursor = pg_conn.cursor()
+            # query = """
+            #     INSERT INTO
+            #         person_person (title, forename, surname, born, email,
+            #                        nationality, external_photo_url, external_id, residence_id)
+            #     VALUES
+            #         (
+            #         '{title}',
+            #         '{forename}',
+            #         '{surname}',
+            #         '{born}',
+            #         '{email}',
+            #         '{nationality}',
+            #         '{external_photo_url}',
+            #         {external_id},
+            #         {residence_id}
+            #     )
+            #     ON CONFLICT (external_id) DO NOTHING;
+
+            #     INSERT INTO parliament_party (name) VALUES ('{stood_for_party}')
+            #     ON CONFLICT DO NOTHING;
+
+            #     INSERT INTO
+            #         parliament_member (period_id, person_id, stood_for_party_id, url)
+            #     VALUES (
+            #             (SELECT id FROM parliament_period where period_num = {period_num}),
+            #             (SELECT id FROM person_person WHERE external_id = {external_id}),
+            #             (SELECT id FROM parliament_party WHERE name = '{stood_for_party}'),
+            #             '{url}'
+            #     )
+            #     ON CONFLICT DO NOTHING;
+            # """
             query = """
                 INSERT INTO
                     person_person (title, forename, surname, born, email,
                                    nationality, external_photo_url, external_id, residence_id)
                 VALUES
                     (
-                    '{title}',
+                    '',
                     '{forename}',
                     '{surname}',
-                    '{born}',
-                    '{email}',
-                    '{nationality}',
-                    '{external_photo_url}',
+                    NULL,
+                    '',
+                    '',
+                    '',
                     {external_id},
-                    {residence_id}
+                    NULL
                 )
                 ON CONFLICT (external_id) DO NOTHING;
 

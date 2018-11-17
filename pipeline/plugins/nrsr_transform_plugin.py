@@ -93,14 +93,14 @@ class NRSRTransformOperator(BaseOperator):
             'external_id',
             'forename',
             'surname',
-            'title',
+            # 'title',
             'stood_for_party',
-            'born',
-            'nationality',
-            'residence',
-            'county',
-            'email',
-            'image_urls',
+            # 'born',
+            # 'nationality',
+            # 'residence',
+            # 'county',
+            # 'email',
+            # 'image_urls',
             'period_num',
             'url',
             'memberships',
@@ -133,66 +133,69 @@ class NRSRTransformOperator(BaseOperator):
             '': 'unknown'
         }
 
-        pg_conn = psycopg2.connect(self.postgres_url)
-        pg_cursor = pg_conn.cursor()
+        # pg_conn = psycopg2.connect(self.postgres_url)
+        # pg_cursor = pg_conn.cursor()
 
+        # wanted_keys = [
+        #     'external_id', 'period_num', 'forename', 'surname', 'title',
+        #     'email', 'born', 'nationality',
+        #     'external_photo_url', 'stood_for_party', 'url', 'type'
+        # ]
         wanted_keys = [
-            'external_id', 'period_num', 'forename', 'surname', 'title',
-            'email', 'born', 'nationality',
-            'external_photo_url', 'stood_for_party', 'url', 'type'
-        ]
+            'external_id', 'period_num', 'forename', 'surname', 'stood_for_party', 'url', 'type']
 
         for doc in self._get_documents(fields_dict):
             new_doc = self._copy_doc(doc)
             for key, val in new_doc.items():
                 if isinstance(val, str):
                     new_doc[key] = val.strip()
-            new_doc['external_photo_url'] = new_doc['image_urls'][0]
+            # GDPR
+            # new_doc['external_photo_url'] = new_doc['image_urls'][0]
 
-            if new_doc['residence'] in residence_replacements:
-                new_doc['residence'] = residence_replacements[new_doc['residence']]
+            # if new_doc['residence'] in residence_replacements:
+            #     new_doc['residence'] = residence_replacements[new_doc['residence']]
 
-            if new_doc['external_id'] == 184:
-                new_doc['residence'] = 'Bratislava'
+            # if new_doc['external_id'] == 184:
+            #     new_doc['residence'] = 'Bratislava'
 
-            if new_doc['residence'] == '':
-                new_doc['residence'] = 'Neuvedené'
+            # if new_doc['residence'] == '':
+            #     new_doc['residence'] = 'Neuvedené'
 
-            if new_doc['county'] in county_replacements:
-                new_doc['county'] = county_replacements[new_doc['county']]
+            # if new_doc['county'] in county_replacements:
+            #     new_doc['county'] = county_replacements[new_doc['county']]
 
-            if new_doc['nationality'] in nationality_replacements:
-                new_doc['nationality'] = nationality_replacements[new_doc['nationality']]
+            # if new_doc['nationality'] in nationality_replacements:
+            #     new_doc['nationality'] = nationality_replacements[new_doc['nationality']]
 
-            region = new_doc['county'] if 'kraj' in new_doc['county'] else '{} kraj'.format(new_doc['county'])
-            residence_query = """
-                SELECT V.id, V.full_name, D.name, R.name
-                FROM geo_village V 
-                INNER JOIN geo_district D ON V.district_id = D.id
-                INNER JOIN geo_region R ON (D.region_id = R.id)
-                WHERE V.full_name = '{village}' AND R.name = '{region}'
-                """.format(village=new_doc['residence'], region=region)
-            pg_cursor.execute(residence_query)
-            villages = pg_cursor.fetchall()
-            residence_id = None
-            if not villages:
-                raise Exception("Residence can't be paired for {}".format(new_doc))
+            # region = new_doc['county'] if 'kraj' in new_doc['county'] else '{} kraj'.format(new_doc['county'])
+            # residence_query = """
+            #     SELECT V.id, V.full_name, D.name, R.name
+            #     FROM geo_village V 
+            #     INNER JOIN geo_district D ON V.district_id = D.id
+            #     INNER JOIN geo_region R ON (D.region_id = R.id)
+            #     WHERE V.full_name = '{village}' AND R.name = '{region}'
+            #     """.format(village=new_doc['residence'], region=region)
+            # pg_cursor.execute(residence_query)
+            # villages = pg_cursor.fetchall()
+            # residence_id = None
+            # if not villages:
+            #     raise Exception("Residence can't be paired for {}".format(new_doc))
 
-            elif len(villages) > 1 and new_doc['external_id'] == 708:
-                for village in villages:
-                    if village[2] == 'Žarnovica':
-                        residence_id = village[0]
-                if not residence_id:
-                    raise Exception(
-                        "Residence doesn't match on {} for {}".format(new_doc, villages))
-            else:
-                residence_id = villages[0][0]
+            # elif len(villages) > 1 and new_doc['external_id'] == 708:
+            #     for village in villages:
+            #         if village[2] == 'Žarnovica':
+            #             residence_id = village[0]
+            #     if not residence_id:
+            #         raise Exception(
+            #             "Residence doesn't match on {} for {}".format(new_doc, villages))
+            # else:
+            #     residence_id = villages[0][0]
 
-            if not residence_id:
-                raise Exception("residence_id for {} is None".format(new_doc))
+            # if not residence_id:
+            #     raise Exception("residence_id for {} is None".format(new_doc))
 
             new_doc = self._get_wanted_keys(new_doc, wanted_keys)
-            new_doc['residence_id'] = residence_id
+            # new_doc['residence_id'] = residence_id
             new_docs.append(new_doc)
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
