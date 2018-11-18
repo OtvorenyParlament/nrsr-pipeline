@@ -755,7 +755,7 @@ class NRSRLoadOperator(BaseOperator):
             pg_cursor = pg_conn.cursor()
             main_query = """
                 INSERT INTO parliament_amendment (external_id, session_id, press_id, "date",
-                                                  voting_id, url, title)
+                                                  voting_id, url)
                 VALUES (
                     {external_id},
                     (
@@ -772,8 +772,7 @@ class NRSRLoadOperator(BaseOperator):
                     ),
                     '{date}',
                     {voting},
-                    '{url}',
-                    '{title}'
+                    '{url}'
 
                 ) ON CONFLICT DO NOTHING
             """

@@ -819,7 +819,6 @@ class NRSRTransformOperator(BaseOperator):
             'period_num',
             'press_num',
             'session_num',
-            'title',
             'submitter',
             'other_submitters',
             'date',
