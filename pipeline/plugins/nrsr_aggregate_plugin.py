@@ -131,17 +131,17 @@ class NRSRAggregateOperator(BaseOperator):
     def aggregate_club_votings(self):
         query = """
         SELECT DATE(PV.timestamp) AS "date", VPC.id AS club_id,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 'Z') AS voting_coalition_for,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 'P') AS voting_coalition_against,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = '?') AS voting_coalition_abstain,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 'N') AS voting_coalition_dnv,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = '0') AS voting_coalition_absent,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 0) AS voting_coalition_for,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 1) AS voting_coalition_against,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 2) AS voting_coalition_abstain,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 3) AS voting_coalition_dnv,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 4) AS voting_coalition_absent,
 
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 'Z') AS voting_opposition_for,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 'P') AS voting_opposition_against,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = '?') AS voting_opposition_abstain,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 'N') AS voting_opposition_dnv,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = '0') AS voting_opposition_absent
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 0) AS voting_opposition_for,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 1) AS voting_opposition_against,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 2) AS voting_opposition_abstain,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 3) AS voting_opposition_dnv,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 4) AS voting_opposition_absent
 
             FROM parliament_voting PV
             INNER JOIN parliament_votingvote PVV ON PVV.voting_id = PV.id
@@ -170,7 +170,7 @@ class NRSRAggregateOperator(BaseOperator):
         self.cursor.execute(query)
         return self.cursor.fetchall()
 
-    def insert_aggregates(self, values_list):
+    def insert_club_aggregates(self, values_list):
         query = """
         INSERT INTO parliament_stats_clubstats ({columns})
         VALUES ({values})
@@ -190,11 +190,101 @@ class NRSRAggregateOperator(BaseOperator):
                     values=', '.join(map(str, insert_values))
                 ))
 
-    def execute(self, context):
-        """Operator Executor"""
-        pg_conn = psycopg2.connect(self.postgres_url)
-        self.cursor = pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        aggregate_dict = {
+    def insert_member_aggregates(self, values_list):
+        query = """
+        INSERT INTO parliament_stats_memberstats ({columns})
+        VALUES ({values})
+        ON CONFLICT DO NOTHING;
+        """
+
+        for values in values_list:
+            insert_columns = []
+            insert_values = []
+            for key, value in values.items():
+                insert_columns.append(key)
+                insert_values.append(value)
+
+            self.cursor.execute(
+                query.format(
+                    columns=', '.join(insert_columns),
+                    values=', '.join(map(str, insert_values))
+                ))
+
+    def insert_global_aggregates(self, values_list):
+        query = """
+        INSERT INTO parliament_stats_globalstats ({columns})
+        VALUES ({values})
+        ON CONFLICT DO NOTHING;
+        """
+        for values in values_list:
+            insert_columns = []
+            insert_values = []
+            for key, value in values.items():
+                insert_columns.append(key)
+                insert_values.append(value)
+
+            self.cursor.execute(
+                query.format(
+                    columns=', '.join(insert_columns),
+                    values=', '.join(map(str, insert_values))
+                ))
+
+    def aggregate_member_bills(self):
+        query = """
+        SELECT PB.delivered AS "date", PM.id AS member_id, COUNT(DISTINCT PB.id) AS bill_count FROM parliament_bill PB
+            INNER JOIN parliament_billproposer PBP ON PB.id = PBP.bill_id
+            INNER JOIN parliament_member PM ON PBP.member_id = PM.id
+        GROUP BY PB.delivered, PM.id
+        ORDER BY PB.delivered, PM.id
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_member_amendments(self):
+        query = """
+        SELECT PA.date AS "date", APM.id AS member_id,
+            COUNT(DISTINCT PA.id) AS amendment_count
+            FROM parliament_amendment PA
+            INNER JOIN parliament_amendmentsubmitter PAS ON PAS.amendment_id = PA.id
+            INNER JOIN parliament_member APM ON PAS.member_id = APM.id
+
+        GROUP BY PA.date, APM.id
+        ORDER BY PA.date, APM.id
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_member_interpellations(self):
+        query = """
+        SELECT PI.date AS "date", PM.id AS member_id,
+                COUNT(DISTINCT PI.id) AS interpellation_count FROM parliament_interpellation PI
+            INNER JOIN parliament_member PM ON PI.asked_by_id = PM.id
+        GROUP BY PI.date, PM.id
+        ORDER BY "date", member_id
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_member_debate_appearances(self):
+        # TODO(Jozef): learn how to get rid of floor(epoch/count)
+        query = """
+        SELECT DATE(PDA."start") AS "date", PDA.debater_id AS member_id,
+                0 AS debate_seconds,
+                COUNT(DISTINCT PDA.id) AS debate_count
+            FROM parliament_debateappearance PDA
+        WHERE PDA.debater_id IS NOT NULL
+        GROUP BY "date", member_id
+        ORDER BY "date", member_id
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+
+    def aggregate_club_stats(self):
+        """
+        Aggregate Club Stats
+        """
+        aggregate_club_dict = {
             'bill_count': 0,
             'amendment_coalition': 0,
             'amendment_opposition': 0,
@@ -234,60 +324,239 @@ class NRSRAggregateOperator(BaseOperator):
             'voting_committee_dnv': 0,
             'voting_committee_absent': 0,
         }
+
+        ##### club aggregates
+        club_aggregates = {}
+        # bills
+        for obj in self.aggregate_club_bills():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+
+        # amendments
+        for obj in self.aggregate_club_amendments():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+
+        # debate appearances
+        for obj in self.aggregate_club_debate_appearances():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+
+        # interpellations
+        for obj in self.aggregate_club_interpellations():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+
+        # votings
+        for obj in self.aggregate_club_votings():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+
+        club_values_list = []
+        for day, clubs in club_aggregates.items():
+            for club, values in clubs.items():
+                # values_list.append({**values, **{'"date"': "'{}'".format(day.strftime('%Y-%m-%d')), 'club_id': club}})
+                values['date'] = "'{}'".format(values['date'].strftime('%Y-%m-%d'))
+                club_values_list.append(values)
+        self.insert_club_aggregates(club_values_list)
+
+    def aggregate_member_stats(self):
+        """
+        Aggregate member stats
+        """
+        aggregate_member_dict = {
+            'bill_count': 0,
+            'amendment_count': 0,
+            'interpellation_count': 0,
+            'debate_count': 0,
+            'debate_seconds': 0,
+        }
+
+        member_aggregates = {}
+        # bills
+        for obj in self.aggregate_member_bills():
+            if obj['date'] not in member_aggregates:
+                member_aggregates[obj['date']] = {}
+            if obj['member_id'] not in member_aggregates[obj['date']]:
+                member_aggregates[obj['date']][obj['member_id']] = aggregate_member_dict.copy()
+            
+            member_aggregates[obj['date']][obj['member_id']] = {**member_aggregates[obj['date']][obj['member_id']], **obj}
+
+        # amendments
+        for obj in self.aggregate_member_amendments():
+            if obj['date'] not in member_aggregates:
+                member_aggregates[obj['date']] = {}
+            if obj['member_id'] not in member_aggregates[obj['date']]:
+                member_aggregates[obj['date']][obj['member_id']] = aggregate_member_dict.copy()
+            
+            member_aggregates[obj['date']][obj['member_id']] = {**member_aggregates[obj['date']][obj['member_id']], **obj}
+
+        # debate appearances
+        for obj in self.aggregate_member_debate_appearances():
+            if obj['date'] not in member_aggregates:
+                member_aggregates[obj['date']] = {}
+            if obj['member_id'] not in member_aggregates[obj['date']]:
+                member_aggregates[obj['date']][obj['member_id']] = aggregate_member_dict.copy()
+            
+            member_aggregates[obj['date']][obj['member_id']] = {**member_aggregates[obj['date']][obj['member_id']], **obj}
+
+        # interpellations
+        for obj in self.aggregate_member_interpellations():
+            if obj['date'] not in member_aggregates:
+                member_aggregates[obj['date']] = {}
+            if obj['member_id'] not in member_aggregates[obj['date']]:
+                member_aggregates[obj['date']][obj['member_id']] = aggregate_member_dict.copy()
+            
+            member_aggregates[obj['date']][obj['member_id']] = {**member_aggregates[obj['date']][obj['member_id']], **obj}
+        
+        member_values_list = []
+        for day, members in member_aggregates.items():
+            for member, values in members.items():
+                values['date'] = "'{}'".format(values['date'].strftime('%Y-%m-%d'))
+                member_values_list.append(values)
+        self.insert_member_aggregates(member_values_list)
+
+    def aggregate_global_bills(self):
+        """Aggregate global bills"""
+        query = """
+        SELECT PB.delivered AS "date",
+            PC.period_id AS period_id,
+            COUNT(DISTINCT PB.id) FILTER (WHERE PC.coalition IS TRUE) AS bill_count_by_coalition,
+            COUNT(DISTINCT PB.id) FILTER (WHERE PC.coalition IS FALSE) AS bill_count_by_opposition
+            FROM parliament_bill PB
+            INNER JOIN parliament_billproposer PBP ON PB.id = PBP.bill_id
+            INNER JOIN parliament_member PM ON PBP.member_id = PM.id
+            INNER JOIN parliament_clubmember PCM ON PCM.member_id = PM.id
+            INNER JOIN parliament_club PC ON PCM.club_id = PC.id
+        WHERE PCM.start <= PB.delivered AND (PCM.end > PB.delivered OR PCM.end IS NULL)
+        GROUP BY PC.period_id, PB.delivered
+        ORDER BY PC.period_id, PB.delivered
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_global_amendments(self):
+        """Aggregate global amendments"""
+        query = """
+        SELECT PA.date AS "date",
+            APC.period_id AS period_id,
+            COUNT(DISTINCT PA.id) FILTER (WHERE APC.coalition IS TRUE) AS amendment_count_by_coalition,
+            COUNT(DISTINCT PA.id) FILTER (WHERE APC.coalition IS FALSE) AS amendment_count_by_opposition
+            FROM parliament_amendment PA
+            INNER JOIN parliament_amendmentsubmitter PAS ON PAS.amendment_id = PA.id
+            INNER JOIN parliament_member APM ON PAS.member_id = APM.id
+            INNER JOIN parliament_clubmember APCM ON APCM.member_id = APM.id
+            INNER JOIN parliament_club APC ON APCM.club_id = APC.id
+
+        WHERE
+            APCM.start <= PA.date AND (APCM.end > PA.date OR APCM.end IS NULL)
+
+        GROUP BY APC.period_id, PA.date
+        ORDER BY APC.period_id, PA.date
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_global_interpellations(self):
+        query = """
+        SELECT PI.date AS "date",
+                PC.period_id AS period_id,
+                COUNT(DISTINCT PI.id) FILTER (WHERE PC.coalition IS TRUE) AS interpellation_count_by_coalition,
+                COUNT(DISTINCT PI.id) FILTER (WHERE PC.coalition IS FALSE) AS interpellation_count_by_opposition
+        FROM parliament_interpellation PI
+            INNER JOIN parliament_member PM ON PI.asked_by_id = PM.id
+            INNER JOIN parliament_clubmember PCM ON PCM.member_id = PM.id
+            INNER JOIN parliament_club PC ON PCM.club_id = PC.id
+        WHERE
+            PCM.start <= PI.date AND (PCM.end > PI.date OR PCM.end IS NULL)
+        GROUP BY PC.period_id, "date"
+        ORDER BY PC.period_id, "date"
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_global_stats(self):
+        """
+        Aggregate Global Stats
+        """
+        aggregate_dict = {
+            'bill_count_by_coalition': 0,
+            'bill_count_by_opposition': 0,
+            'amendment_count_by_coalition': 0,
+            'amendment_count_by_opposition': 0,
+            'interpellation_count_by_coalition': 0,
+            'interpellation_count_by_opposition': 0,
+        }
+        aggregates = {}
+        # bills
+        for obj in self.aggregate_global_bills():
+            if obj['date'] not in aggregates:
+                aggregates[obj['date']] = {}
+            if obj['period_id'] not in aggregates[obj['date']]:
+                aggregates[obj['date']][obj['period_id']] = aggregate_dict.copy()
+            
+            aggregates[obj['date']][obj['period_id']] = {**aggregates[obj['date']][obj['period_id']], **obj}
+
+        # amendments
+        for obj in self.aggregate_global_amendments():
+            if obj['date'] not in aggregates:
+                aggregates[obj['date']] = {}
+            if obj['period_id'] not in aggregates[obj['date']]:
+                aggregates[obj['date']][obj['period_id']] = aggregate_dict.copy()
+            
+            aggregates[obj['date']][obj['period_id']] = {**aggregates[obj['date']][obj['period_id']], **obj}
+
+        # interpellations
+        for obj in self.aggregate_global_interpellations():
+            if obj['date'] not in aggregates:
+                aggregates[obj['date']] = {}
+            if obj['period_id'] not in aggregates[obj['date']]:
+                aggregates[obj['date']][obj['period_id']] = aggregate_dict.copy()
+            
+            aggregates[obj['date']][obj['period_id']] = {**aggregates[obj['date']][obj['period_id']], **obj}
+        
+        values_list = []
+        for day, periods in aggregates.items():
+            for period, values in periods.items():
+                values['date'] = "'{}'".format(values['date'].strftime('%Y-%m-%d'))
+                values_list.append(values)
+        self.insert_global_aggregates(values_list)
+
+    def execute(self, context):
+        """Operator Executor"""
+        pg_conn = psycopg2.connect(self.postgres_url)
+        self.cursor = pg_conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
         try:
-            aggregates = {}
-            # bills
-            for obj in self.aggregate_club_bills():
-                if obj['date'] not in aggregates:
-                    aggregates[obj['date']] = {}
-                if obj['club_id'] not in aggregates[obj['date']]:
-                    aggregates[obj['date']][obj['club_id']] = aggregate_dict.copy()
-                
-                aggregates[obj['date']][obj['club_id']] = {**aggregates[obj['date']][obj['club_id']], **obj}
+            ##### club aggregates
+            self.aggregate_club_stats()
 
-            # amendments
-            for obj in self.aggregate_club_amendments():
-                if obj['date'] not in aggregates:
-                    aggregates[obj['date']] = {}
-                if obj['club_id'] not in aggregates[obj['date']]:
-                    aggregates[obj['date']][obj['club_id']] = aggregate_dict.copy()
-                
-                aggregates[obj['date']][obj['club_id']] = {**aggregates[obj['date']][obj['club_id']], **obj}
+            ##### member aggregates
+            self.aggregate_member_stats()
 
-            # debate appearances
-            for obj in self.aggregate_club_debate_appearances():
-                if obj['date'] not in aggregates:
-                    aggregates[obj['date']] = {}
-                if obj['club_id'] not in aggregates[obj['date']]:
-                    aggregates[obj['date']][obj['club_id']] = aggregate_dict.copy()
-                
-                aggregates[obj['date']][obj['club_id']] = {**aggregates[obj['date']][obj['club_id']], **obj}
+            ##### global aggregates
+            self.aggregate_global_stats()
 
-            # interpellations
-            for obj in self.aggregate_club_interpellations():
-                if obj['date'] not in aggregates:
-                    aggregates[obj['date']] = {}
-                if obj['club_id'] not in aggregates[obj['date']]:
-                    aggregates[obj['date']][obj['club_id']] = aggregate_dict.copy()
-                
-                aggregates[obj['date']][obj['club_id']] = {**aggregates[obj['date']][obj['club_id']], **obj}
-
-            # votings
-            for obj in self.aggregate_club_votings():
-                if obj['date'] not in aggregates:
-                    aggregates[obj['date']] = {}
-                if obj['club_id'] not in aggregates[obj['date']]:
-                    aggregates[obj['date']][obj['club_id']] = aggregate_dict.copy()
-                
-                aggregates[obj['date']][obj['club_id']] = {**aggregates[obj['date']][obj['club_id']], **obj}
-
-            values_list = []
-            for day, clubs in aggregates.items():
-                for club, values in clubs.items():
-                    # values_list.append({**values, **{'"date"': "'{}'".format(day.strftime('%Y-%m-%d')), 'club_id': club}})
-                    values['date'] = "'{}'".format(values['date'].strftime('%Y-%m-%d'))
-                    values_list.append(values)
-            self.insert_aggregates(values_list)
             pg_conn.commit()
         except (Exception, psycopg2.DatabaseError) as error:
             raise error
