@@ -463,25 +463,6 @@ class NRSRTransformOperator(BaseOperator):
         Transform votings and votes
         """
 
-        # fields_dict = {}
-        # unwind = {'$unwind': '$votes'}
-        # projection = {
-        #     '$project': {
-        #         '_id': 1,
-        #         'external_id': 1,
-        #         'topic': 1,
-        #         'datetime': 1,
-        #         'session_num': 1,
-        #         'voting_num': 1,
-        #         'result': 1,
-        #         'period_num': 1,
-        #         'press_num': 1,
-        #         'url': 1,
-        #         'vote': '$votes.vote',
-        #         'member_external_id': '$votes.external_id'
-        #     }
-        # }
-
         fields_list = [
             'external_id', 'topic', 'datetime', 'session_num', 'voting_num',
             'result', 'period_num', 'press_num', 'url', 'votes', 'type'
@@ -494,10 +475,20 @@ class NRSRTransformOperator(BaseOperator):
             "Parlament nebol uznášaniaschopný": 2
         }
 
+        vote_replacements = {
+            "Z": 0,
+            "P": 1,
+            "?": 2,
+            "N": 3,
+            "0": 4
+        }
+
         new_docs = []
         for doc in self._get_documents(fields_dict):
             new_doc = self._copy_doc(doc)
             new_doc['result'] = result_replacements[new_doc['result']]
+            for vote in new_doc['votes']:
+                vote['vote'] = vote_replacements[vote['vote']]
             del new_doc['_id']
             new_docs.append(new_doc)
 
