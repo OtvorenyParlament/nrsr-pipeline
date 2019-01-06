@@ -514,12 +514,13 @@ class NRSRLoadOperator(BaseOperator):
             pg_cursor = pg_conn.cursor()
             bill_query = """
             INSERT INTO parliament_bill (
-                external_id, delivered, proposer_nonmember,
+                external_id, delivered, proposer_nonmember, proposer_type,
                 state, result, url, press_id, category)
             VALUES (
                 {external_id},
                 {delivered},
                 '{proposer_nonmember}',
+                {proposer_type},
                 {current_state},
                 {current_result},
                 '{url}',
@@ -551,7 +552,11 @@ class NRSRLoadOperator(BaseOperator):
                     doc['current_result'] = 'NULL'
                 if not 'current_state' in doc or not doc['current_state']:
                     doc['current_state'] = 'NULL'
-                pg_cursor.execute(bill_query.format(**doc))
+                try:
+                    pg_cursor.execute(bill_query.format(**doc))
+                except Exception as exc:
+                    print(doc)
+                    raise exc
                 if 'proposers' in doc:
                     for proposer in doc['proposers']:
                         pg_cursor.execute(proposer_query.format(

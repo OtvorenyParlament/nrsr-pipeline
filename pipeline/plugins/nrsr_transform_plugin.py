@@ -580,11 +580,24 @@ class NRSRTransformOperator(BaseOperator):
             names = []
             proposers = []
             doc['proposer_nonmember'] = ''
-            if 'proposer' in doc and doc['proposer'].startswith('poslanci NR SR'):
-                try:
-                    names = re.match(r'^.*\(([^)]+)\)$', doc['proposer']).groups()[0].split(', ')
-                except AttributeError:
-                    names = []
+            proposer_type = 'NULL'
+            if 'proposer' in doc:
+                if doc['proposer'].startswith('poslanci NR SR'):
+                    doc['proposer_nonmember'] = 'poslanci NR SR'
+                    proposer_type = 0
+                    try:
+                        names = re.match(r'^.*\(([^)]+)\)$', doc['proposer']).groups()[0].split(', ')
+                    except AttributeError:
+                        names = []
+                elif doc['proposer'].startswith('vláda'):
+                    proposer_type = 1
+                    propre = re.match(r'vláda \((.*)\)', doc['proposer'])
+                    if propre and len(propre.groups()) == 1:
+                        doc['proposer_nonmember'] = propre.groups()[0]
+                    else:
+                        doc['proposer_nonmember'] = doc['proposer']
+                elif doc['proposer'].startswith('výbor'):
+                    proposer_type = 2
                     doc['proposer_nonmember'] = doc['proposer']
                 query = """
                     SELECT M.id, S.forename, S.surname FROM parliament_member M
@@ -626,6 +639,7 @@ class NRSRTransformOperator(BaseOperator):
                 doc['proposers'] = proposers
 
             new_doc = self._copy_doc(doc)
+            new_doc['proposer_type'] = proposer_type
             try:
                 new_doc['current_state'] = current_state_replacements[new_doc['current_state']]
             except KeyError:
@@ -639,7 +653,7 @@ class NRSRTransformOperator(BaseOperator):
             new_doc = self._get_wanted_keys(new_doc, [
                 'type', 'period_num', 'press_num', 'external_id', 'delivered',
                 'current_state', 'current_result', 'proposers',
-                'proposer_nonmember', 'category_name', 'url'
+                'proposer_nonmember', 'proposer_type', 'category_name', 'url'
             ])
             new_docs.append(new_doc)
 
