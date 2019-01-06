@@ -436,7 +436,7 @@ class NRSRAggregateOperator(BaseOperator):
                 member_values_list.append(values)
         self.insert_member_aggregates(member_values_list)
 
-    def aggregate_global_bills(self):
+    def aggregate_global_bills_members(self):
         """Aggregate global bills"""
         query = """
         SELECT PB.delivered AS "date",
@@ -449,8 +449,25 @@ class NRSRAggregateOperator(BaseOperator):
             INNER JOIN parliament_clubmember PCM ON PCM.member_id = PM.id
             INNER JOIN parliament_club PC ON PCM.club_id = PC.id
         WHERE PCM.start <= PB.delivered AND (PCM.end > PB.delivered OR PCM.end IS NULL)
+        AND PB.proposer_type = 0
         GROUP BY PC.period_id, PB.delivered
         ORDER BY PC.period_id, PB.delivered
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_global_bills_govandcom(self):
+        """Aggregate global bills"""
+        query = """
+        SELECT PB.delivered AS "date",
+            PP.period_id AS period_id,
+            COUNT(DISTINCT PB.id) FILTER (WHERE PB.proposer_type = 1) AS bill_count_by_government,
+            COUNT(DISTINCT PB.id) FILTER (WHERE PB.proposer_type = 2) AS bill_count_by_committee
+            FROM parliament_bill PB
+            INNER JOIN parliament_press PP ON PP.id = PB.press_id
+        WHERE PB.proposer_type IN (1, 2)
+        GROUP BY PP.period_id, PB.delivered
+        ORDER BY PP.period_id, PB.delivered
         """
         self.cursor.execute(query)
         return self.cursor.fetchall()
@@ -502,6 +519,8 @@ class NRSRAggregateOperator(BaseOperator):
         aggregate_dict = {
             'bill_count_by_coalition': 0,
             'bill_count_by_opposition': 0,
+            'bill_count_by_government': 0,
+            'bill_count_by_committee': 0,
             'amendment_count_by_coalition': 0,
             'amendment_count_by_opposition': 0,
             'interpellation_count_by_coalition': 0,
@@ -509,7 +528,15 @@ class NRSRAggregateOperator(BaseOperator):
         }
         aggregates = {}
         # bills
-        for obj in self.aggregate_global_bills():
+        for obj in self.aggregate_global_bills_members():
+            if obj['date'] not in aggregates:
+                aggregates[obj['date']] = {}
+            if obj['period_id'] not in aggregates[obj['date']]:
+                aggregates[obj['date']][obj['period_id']] = aggregate_dict.copy()
+            
+            aggregates[obj['date']][obj['period_id']] = {**aggregates[obj['date']][obj['period_id']], **obj}
+
+        for obj in self.aggregate_global_bills_govandcom():
             if obj['date'] not in aggregates:
                 aggregates[obj['date']] = {}
             if obj['period_id'] not in aggregates[obj['date']]:
