@@ -69,6 +69,33 @@ class NRSRAggregateOperator(BaseOperator):
         self.cursor.execute(query)
         return self.cursor.fetchall()
 
+    def aggregate_club_amendments_govandcom(self):
+        """
+        Aggregate Amendments to government and committees bills
+        """
+        query = """
+        SELECT PA.date AS "date", APC.id AS club_id,
+            COUNT(DISTINCT PA.id) FILTER (WHERE PB.proposer_type = 1) AS amendment_government,
+            COUNT(DISTINCT PA.id) FILTER (WHERE PB.proposer_type = 2) AS amendment_committee
+            FROM parliament_amendment PA
+            INNER JOIN parliament_amendmentsubmitter PAS ON PAS.amendment_id = PA.id
+            INNER JOIN parliament_member APM ON PAS.member_id = APM.id
+            INNER JOIN parliament_clubmember APCM ON APCM.member_id = APM.id
+            INNER JOIN parliament_club APC ON APCM.club_id = APC.id
+            INNER JOIN parliament_press PP ON PA.press_id = PP.id
+            INNER JOIN parliament_bill PB ON PB.press_id = PP.id
+
+        WHERE
+            APCM.start <= PA.date AND (APCM.end > PA.date OR APCM.end IS NULL)
+            AND PB.proposer_type IN (1, 2)
+
+        GROUP BY PA.date, APC.id
+        ORDER BY PA.date, APC.id
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+
     def aggregate_club_debate_appearances(self):
         # TODO(Jozef): learn how to get rid of floor(epoch/count)
         query = """
@@ -164,6 +191,43 @@ class NRSRAggregateOperator(BaseOperator):
 
         WHERE
             VPCM.start <= DATE(PV.timestamp) AND (VPCM.end >= DATE(PV.timestamp) OR VPCM.end IS NULL)
+        GROUP BY "date", VPC.id
+        ORDER BY "date", club_id
+        """
+        self.cursor.execute(query)
+        return self.cursor.fetchall()
+
+    def aggregate_club_votings_govandcom(self):
+        """
+        Aggregate Club votings for gov and committee bills
+        """
+        query = """
+        SELECT DATE(PV.timestamp) AS "date", VPC.id AS club_id,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 0) AS voting_government_for,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 1) AS voting_government_against,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 2) AS voting_government_abstain,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 3) AS voting_government_dnv,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 4) AS voting_government_absent,
+
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 0) AS voting_committee_for,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 1) AS voting_committee_against,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 2) AS voting_committee_abstain,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 3) AS voting_committee_dnv,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 4) AS voting_committee_absent
+
+            FROM parliament_voting PV
+            INNER JOIN parliament_votingvote PVV ON PVV.voting_id = PV.id
+            -- voter joins
+            INNER JOIN parliament_member VPM ON VPM.id = PVV.voter_id
+            INNER JOIN parliament_clubmember VPCM ON VPCM.member_id = VPM.id
+            INNER JOIN parliament_club VPC ON VPCM.club_id = VPC.id
+
+            -- bill join
+            INNER JOIN parliament_bill BILL ON BILL.press_id = PV.press_id
+
+        WHERE
+            VPCM.start <= DATE(PV.timestamp) AND (VPCM.end >= DATE(PV.timestamp) OR VPCM.end IS NULL)
+            AND BILL.proposer_type IN (1, 2)
         GROUP BY "date", VPC.id
         ORDER BY "date", club_id
         """
@@ -344,6 +408,14 @@ class NRSRAggregateOperator(BaseOperator):
                 club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
             
             club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+        
+        for obj in self.aggregate_club_amendments_govandcom():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
 
         # debate appearances
         for obj in self.aggregate_club_debate_appearances():
@@ -365,6 +437,14 @@ class NRSRAggregateOperator(BaseOperator):
 
         # votings
         for obj in self.aggregate_club_votings():
+            if obj['date'] not in club_aggregates:
+                club_aggregates[obj['date']] = {}
+            if obj['club_id'] not in club_aggregates[obj['date']]:
+                club_aggregates[obj['date']][obj['club_id']] = aggregate_club_dict.copy()
+            
+            club_aggregates[obj['date']][obj['club_id']] = {**club_aggregates[obj['date']][obj['club_id']], **obj}
+
+        for obj in self.aggregate_club_votings_govandcom():
             if obj['date'] not in club_aggregates:
                 club_aggregates[obj['date']] = {}
             if obj['club_id'] not in club_aggregates[obj['date']]:
