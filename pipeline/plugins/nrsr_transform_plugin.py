@@ -476,6 +476,7 @@ class NRSRTransformOperator(BaseOperator):
         }
 
         vote_replacements = {
+            "-": -1,
             "Z": 0,
             "P": 1,
             "?": 2,
