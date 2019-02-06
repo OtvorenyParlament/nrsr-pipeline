@@ -797,6 +797,7 @@ class NRSRTransformOperator(BaseOperator):
             "Príjem odpovede na interpeláciu": 0,
             "Rokovanie o interpelácii": 1,
             "Uzavretá odpoveď na interpeláciu": 2,
+            "Interpelácia na expedíciu": 3,
         }
         new_docs = []
         for doc in self._get_documents(fields_dict):
