@@ -19,8 +19,7 @@ default_args = {
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=1),
-    'start_date': datetime(2018, 10, 10),
-    'schedule_interval': '0 0 * * 1-5',
+    'start_date': datetime(2019, 3, 3),
     'max_active_runs': 1,
 }
 
