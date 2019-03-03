@@ -21,6 +21,7 @@ default_args = {
     'retry_delay': timedelta(minutes=1),
     'start_date': datetime(2018, 10, 10),
     'schedule_interval': '0 0 * * 1-5',
+    'max_active_runs': 1,
 }
 
 DAILY = True
