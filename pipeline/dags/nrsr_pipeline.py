@@ -140,6 +140,15 @@ extract_amendments = NRSRScrapyOperator(
     dag=dag
 )
 
+extract_committees = NRSRScrapyOperator(
+    task_id='extract_committees',
+    spider='committees',
+    scrapy_home=SCRAPY_HOME,
+    daily=DAILY,
+    period=PERIOD,
+    dag=dag
+)
+
 wait_for_extracts = DummyOperator(
     task_id='wait_for_extracts',
     dag=dag,
@@ -399,6 +408,8 @@ extract_interpellations.set_upstream(extract_debate_appearances)
 
 extract_amendments.set_upstream(extract_interpellations)
 
+extract_committees.set_upstream(extract_amendments)
+
 wait_for_extracts.set_upstream(extract_members)
 wait_for_extracts.set_upstream(extract_member_changes)
 wait_for_extracts.set_upstream(extract_sessions)
@@ -409,6 +420,7 @@ wait_for_extracts.set_upstream(extract_bills)
 wait_for_extracts.set_upstream(extract_debate_appearances)
 wait_for_extracts.set_upstream(extract_interpellations)
 wait_for_extracts.set_upstream(extract_amendments)
+wait_for_extracts.set_upstream(extract_committees)
 
 # transforms
 transform_members.set_upstream(wait_for_extracts)
