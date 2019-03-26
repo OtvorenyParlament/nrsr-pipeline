@@ -849,6 +849,44 @@ class NRSRTransformOperator(BaseOperator):
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
+    def transform_committees(self):
+        """Committees and memberships"""
+        fields_list = [
+            '_id',
+            'type',
+            'period_num',
+            'external_id',
+            'name',
+            'description',
+            'url',
+            'members'
+        ]
+
+        roles = {
+            'predsedníčka': 0,
+            'predseda': 1,
+            'podpredsedníčka': 2,
+            'podpredseda': 3,
+            'členka': 4,
+            'člen': 5,
+            'náhradná členka': 6,
+            'náhradný člen': 7,
+            'overovateľka': 8,
+            'overovateľ': 9
+        }
+
+        fields_dict = self._fields_to_dict(fields_list)
+        new_docs = []
+        for doc in self._get_documents(fields_dict):
+            doc['description'] = ''.join([x.strip() for x in doc['description']])
+            for member in doc['members']:
+                member['role'] = roles[member['role']]
+                member['start'] = doc['_id'].generation_time
+            new_docs.append(self._get_wanted_keys(doc, fields_list))
+        if new_docs:
+            self._insert_documents(new_docs, remove=[self.data_type])
+
+
     def execute(self, context):
         """Operator Executor"""
         if self.data_type == 'member':
@@ -875,6 +913,8 @@ class NRSRTransformOperator(BaseOperator):
             self.transform_interpellations()
         elif self.data_type == 'amendment':
             self.transform_amendments()
+        elif self.data_type == 'committee':
+            self.transform_committees()
 
 
 class NRSRTransformPlugin(AirflowPlugin):

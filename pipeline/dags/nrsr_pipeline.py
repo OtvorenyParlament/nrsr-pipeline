@@ -19,7 +19,7 @@ default_args = {
     'email_on_retry': False,
     'retries': 1,
     'retry_delay': timedelta(minutes=1),
-    'start_date': datetime(2019, 3, 3),
+    'start_date': datetime(2019, 3, 26),
     'max_active_runs': 1,
 }
 
@@ -276,6 +276,16 @@ transform_amendments = NRSRTransformOperator(
     dag=dag
 )
 
+transform_committees = NRSRTransformOperator(
+    task_id='transform_committees',
+    data_type='committee',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 # load data
 load_members = NRSRLoadOperator(
     task_id='load_members',
@@ -445,6 +455,8 @@ transform_debate_appearances.set_upstream(wait_for_extracts)
 transform_interpellations.set_upstream(wait_for_extracts)
 
 transform_amendments.set_upstream(wait_for_extracts)
+
+transform_committees.set_upstream(wait_for_extracts)
 
 # loads
 load_members.set_upstream(transform_members)
