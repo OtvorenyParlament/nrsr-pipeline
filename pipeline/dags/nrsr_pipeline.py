@@ -387,6 +387,16 @@ load_amendments = NRSRLoadOperator(
     dag=dag
 )
 
+load_committees = NRSRLoadOperator(
+    task_id='load_committees',
+    data_type='committee',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 wait_for_loads = DummyOperator(
     task_id='wait_for_loads',
     dag=dag
@@ -494,6 +504,9 @@ load_amendments.set_upstream(load_members)
 load_amendments.set_upstream(load_sessions)
 load_amendments.set_upstream(load_presses)
 
+load_committees.set_upstream(transform_committees)
+load_committees.set_upstream(load_members)
+
 
 wait_for_loads.set_upstream(load_members)
 wait_for_loads.set_upstream(load_member_changes)
@@ -505,5 +518,6 @@ wait_for_loads.set_upstream(load_bills)
 wait_for_loads.set_upstream(load_debate_appearances)
 wait_for_loads.set_upstream(load_interpellations)
 wait_for_loads.set_upstream(load_amendments)
+wait_for_loads.set_upstream(load_committees)
 
 aggregate.set_upstream(wait_for_loads)

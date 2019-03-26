@@ -868,6 +868,73 @@ class NRSRLoadOperator(BaseOperator):
             if pg_conn is not None:
                 pg_conn.close()
 
+    def load_committees(self):
+        """Load Committees"""
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
+
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            main_query = """
+                INSERT INTO parliament_committee (period_id, name, external_id, url)
+                VALUES (
+                    (
+                        SELECT id FROM parliament_period WHERE period_num = {period_num}
+                    ),
+                    '{name}',
+                    {external_id},
+                    '{url}'
+
+                ) ON CONFLICT DO NOTHING
+            """
+
+            # TODO: We need cleanup to place end to the membership once person disappears from the
+            # TODO: list of the committees
+            for doc in docs:
+                pg_cursor.execute(main_query.format(**doc))
+
+
+                for member in doc['members']:
+                    pg_cursor.execute(
+                        """
+                        INSERT INTO parliament_committeemember(committee_id, member_id, membership, "start")
+                            SELECT
+                                (SELECT id FROM parliament_committee WHERE external_id = {committee_external_id}),
+                                (
+                                    SELECT PM.id FROM parliament_member PM
+                                    LEFT JOIN person_person PP ON PM.person_id = PP.id
+                                    LEFT JOIN parliament_period PPER ON PM.period_id = PPER.id
+                                    WHERE PPER.period_num = {period_num} AND PP.external_id = {external_id}
+                                ),
+                                {role},
+                                '{start}'
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM parliament_committeemember PCM
+                            LEFT JOIN parliament_committee PC ON PC.id = PCM.committee_id
+                            LEFT JOIN parliament_member PM ON PCM.member_id = PM.id
+                            LEFT JOIN person_person PP ON PP.id = PM.person_id
+                            LEFT JOIN parliament_period PPER ON PM.period_id = PPER.id
+                            WHERE
+                                PPER.period_num = {period_num}
+                                AND PP.external_id = {external_id}
+                                AND PC.external_id = {committee_external_id}
+                                AND PCM.membership = {role}
+                        )
+                        """.format(committee_external_id=doc['external_id'], period_num=doc['period_num'], **member)
+                    )
+
+            pg_conn.commit()
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
+
 
     def execute(self, context):
         """Operator Executor"""
@@ -892,6 +959,8 @@ class NRSRLoadOperator(BaseOperator):
             self.load_interpellations()
         elif self.data_type == 'amendment':
             self.load_amendments()
+        elif self.data_type == 'committee':
+            self.load_committees()
         else:
             raise Exception("unknown data_type {}".format(self.data_type))
 
