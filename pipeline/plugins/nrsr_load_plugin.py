@@ -880,14 +880,15 @@ class NRSRLoadOperator(BaseOperator):
             pg_conn = psycopg2.connect(self.postgres_url)
             pg_cursor = pg_conn.cursor()
             main_query = """
-                INSERT INTO parliament_committee (period_id, name, external_id, url)
+                INSERT INTO parliament_committee (period_id, name, external_id, url, description)
                 VALUES (
                     (
                         SELECT id FROM parliament_period WHERE period_num = {period_num}
                     ),
                     '{name}',
                     {external_id},
-                    '{url}'
+                    '{url}',
+                    '{description}'
 
                 ) ON CONFLICT DO NOTHING
             """
