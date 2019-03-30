@@ -171,7 +171,7 @@ class NRSRTransformOperator(BaseOperator):
             # region = new_doc['county'] if 'kraj' in new_doc['county'] else '{} kraj'.format(new_doc['county'])
             # residence_query = """
             #     SELECT V.id, V.full_name, D.name, R.name
-            #     FROM geo_village V 
+            #     FROM geo_village V
             #     INNER JOIN geo_district D ON V.district_id = D.id
             #     INNER JOIN geo_region R ON (D.region_id = R.id)
             #     WHERE V.full_name = '{village}' AND R.name = '{region}'
@@ -372,7 +372,7 @@ class NRSRTransformOperator(BaseOperator):
                     'period_num': '$_id.period_num',
                     'member_external_id': '$_id.member_external_id',
                     'date': '$_id.date',
-                    'club': '$_id.club', 
+                    'club': '$_id.club',
                 }
             },
             {'$sort': {'_id.period_num': 1, '_id.member_external_id': 1, '_id.date': 1}}
@@ -401,10 +401,10 @@ class NRSRTransformOperator(BaseOperator):
 
             if period_num not in member_sequence:
                 member_sequence[period_num] = {}
-            
+
             if club_key not in member_sequence[period_num]:
                 member_sequence[period_num][club_key] = {}
-            
+
             if member_key not in member_sequence[period_num][club_key]:
                 member_sequence[period_num][club_key][member_key] = []
 
@@ -423,7 +423,7 @@ class NRSRTransformOperator(BaseOperator):
                 member_link.append([_id['date'], None, False])
 
             current = member_link[-1]
-                
+
             if next_item:
                 if next_item['member_external_id'] == member_key and next_item['club'] != club_key:
                     if _id['date'] == max_voting:
@@ -437,7 +437,7 @@ class NRSRTransformOperator(BaseOperator):
                     if not db_result:
                         current[1] = _id['date']
                         current[2] = True
-        
+
         if pg_conn is not None:
             pg_conn.close()
 
@@ -767,7 +767,7 @@ class NRSRTransformOperator(BaseOperator):
                     'appearance_type_addition', 'video_short_url', 'text'
                 ])
             )
-        
+
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
@@ -814,7 +814,7 @@ class NRSRTransformOperator(BaseOperator):
                     'response_session_num', 'responded_by', 'press_num', 'url'
                 ])
             )
-        
+
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
@@ -841,11 +841,11 @@ class NRSRTransformOperator(BaseOperator):
 
             if 'other_submitters' in doc:
                 doc['other_submitters'] = [x.split(', ')[::-1] for x in doc['other_submitters']]
-            
+
             if 'signed_members' in doc:
                 doc['signed_members'] = [x.split(', ')[::-1] for x in doc['signed_members']]
             new_docs.append(self._get_wanted_keys(doc, fields_list))
-        
+
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
@@ -886,6 +886,90 @@ class NRSRTransformOperator(BaseOperator):
         if new_docs:
             self._insert_documents(new_docs, remove=[self.data_type])
 
+    def transform_committee_schedules(self):
+        """Transform committee sessions and session points"""
+        fields_list = [
+            'type',
+            'committee_name',
+            'period_num',
+            'date',
+            'time',
+            'place',
+            'points'
+        ]
+        fields_dict = self._fields_to_dict(fields_list)
+        new_docs = []
+        pg_conn = psycopg2.connect(self.postgres_url)
+        pg_cursor = pg_conn.cursor()
+        for doc in self._get_documents(fields_dict):
+            times = doc['time'].split(' - ')
+            if len(times) == 1:
+                time_start = times[0]
+                time_end = None
+            else:
+                time_start, time_end = times
+
+            pg_cursor.execute(
+                """
+                SELECT PC.id FROM parliament_committee PC
+                LEFT JOIN parliament_period PP ON PP.id = PC.period_id
+                WHERE PC.name = '{committee_name}' AND PP.period_num = {period_num}
+                """.format(
+                    committee_name=doc['committee_name'],
+                    period_num=doc['period_num']
+                )
+            )
+            row = pg_cursor.fetchone()
+
+            new_doc = {
+                'type': doc['type'],
+                'period_num': doc['period_num'],
+                'place':
+                ''.join([x.strip() for x in doc['place']]),
+                'start':
+                datetime.strptime('{} {}'.format(doc['date'], time_start),
+                                  '%d. %m. %Y %H:%M'),
+                'end':
+                datetime.strptime('{} {}'.format(doc['date'], time_end),
+                                  '%d. %m. %Y %H:%M') if time_end else None,
+                'committee_id':
+                row[0]
+            }
+            points = []
+            pg_cursor.execute(
+                """
+                SELECT PRESS.id, PRESS.press_num FROM parliament_press PRESS
+                LEFT JOIN parliament_period PER ON PER.id = PRESS.period_id
+                WHERE PER.period_num = {period_num}
+                """.format(period_num=doc['period_num'])
+            )
+            presses = {x[1]: x[0] for x in pg_cursor.fetchall()}
+            for point in doc['points']:
+                index = None
+                text = ''.join([x.strip() for x in point['text']])
+                if not text:
+                    continue
+                is_index = re.match(r'^([0-9]\. )([\s\S]*)$', text)
+                if is_index:
+                    index = is_index.groups()[0].strip().replace('.', '')
+                    text = ''.join(is_index.groups()[1:])
+
+                press_id = None
+                if point['press_num']:
+                    press_id = presses[str(point['press_num'])]
+                points.append({
+                    'press_id': press_id,
+                    'index': index,
+                    'topic': text
+                })
+            new_doc['points'] = points
+            new_docs.append(new_doc)
+
+        if new_docs:
+            self._insert_documents(new_docs, remove=[self.data_type])
+
+        if pg_conn is not None:
+            pg_conn.close()
 
     def execute(self, context):
         """Operator Executor"""
@@ -915,6 +999,8 @@ class NRSRTransformOperator(BaseOperator):
             self.transform_amendments()
         elif self.data_type == 'committee':
             self.transform_committees()
+        elif self.data_type == 'committeeschedule':
+            self.transform_committee_schedules()
 
 
 class NRSRTransformPlugin(AirflowPlugin):
