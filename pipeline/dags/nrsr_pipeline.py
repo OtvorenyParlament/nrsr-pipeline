@@ -295,6 +295,16 @@ transform_committees = NRSRTransformOperator(
     dag=dag
 )
 
+transform_committee_schedules = NRSRTransformOperator(
+    task_id='transform_committee_schedules',
+    data_type='committeeschedule',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 # load data
 load_members = NRSRLoadOperator(
     task_id='load_members',
@@ -406,6 +416,16 @@ load_committees = NRSRLoadOperator(
     dag=dag
 )
 
+load_committee_schedules = NRSRLoadOperator(
+    task_id='load_committee_schedules',
+    data_type='committeeschedule',
+    period=PERIOD,
+    daily=DAILY,
+    postgres_url=POSTGRES_URL,
+    mongo_settings=MONGO_SETTINGS,
+    dag=dag
+)
+
 wait_for_loads = DummyOperator(
     task_id='wait_for_loads',
     dag=dag
@@ -479,6 +499,10 @@ transform_amendments.set_upstream(wait_for_extracts)
 
 transform_committees.set_upstream(wait_for_extracts)
 
+transform_committee_schedules.set_upstream(wait_for_extracts)
+transform_committee_schedules.set_upstream(load_presses)
+transform_committee_schedules.set_upstream(load_committees)
+
 # loads
 load_members.set_upstream(transform_members)
 
@@ -518,6 +542,7 @@ load_amendments.set_upstream(load_presses)
 load_committees.set_upstream(transform_committees)
 load_committees.set_upstream(load_members)
 
+load_committee_schedules.set_upstream(transform_committee_schedules)
 
 wait_for_loads.set_upstream(load_members)
 wait_for_loads.set_upstream(load_member_changes)
@@ -530,5 +555,6 @@ wait_for_loads.set_upstream(load_debate_appearances)
 wait_for_loads.set_upstream(load_interpellations)
 wait_for_loads.set_upstream(load_amendments)
 wait_for_loads.set_upstream(load_committees)
+wait_for_loads.set_upstream(load_committee_schedules)
 
 aggregate.set_upstream(wait_for_loads)
