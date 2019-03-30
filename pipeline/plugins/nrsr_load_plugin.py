@@ -936,6 +936,49 @@ class NRSRLoadOperator(BaseOperator):
             if pg_conn is not None:
                 pg_conn.close()
 
+    def load_committee_schedules(self):
+        """Load Committee sessions and points"""
+        find_query = {'type': self.data_type}
+        if self.mongo_outcol.count_documents(find_query) == 0:
+            return None
+
+        docs = self.mongo_outcol.find(find_query)
+        pg_conn = None
+        try:
+            pg_conn = psycopg2.connect(self.postgres_url)
+            pg_cursor = pg_conn.cursor()
+            main_query = """
+            INSERT INTO parliament_committeesession(committee_id, "start", "end", place)
+            VALUES ({committee_id}, '{start}', {end}, '{place}')
+            ON CONFLICT DO NOTHING;
+            SELECT id FROM parliament_committeesession
+            WHERE start = '{start}' AND committee_id = {committee_id}
+            """
+
+            point_query = """
+            INSERT INTO parliament_committeesessionpoint(session_id, index, topic, press_id)
+            VALUES ({session_id}, {index}, '{topic}', {press_id}) ON CONFLICT DO NOTHING
+            """
+
+            for doc in docs:
+                doc['end'] = 'NULL' if not doc['end'] else "'{}'".format(doc['end'])
+                pg_cursor.execute(main_query.format(**doc))
+                row = pg_cursor.fetchone()
+
+                for point in doc['points']:
+                    point['session_id'] = row[0]
+                    point['index'] = point['index'] if point['index'] else 'NULL'
+                    point['press_id'] = point['press_id'] if point['press_id'] else 'NULL'
+                    point['topic'] = point['topic'].replace("'", "''")
+                    pg_cursor.execute(point_query.format(**point))
+
+            pg_conn.commit()
+
+        except (Exception, psycopg2.DatabaseError) as error:
+            raise error
+        finally:
+            if pg_conn is not None:
+                pg_conn.close()
 
     def execute(self, context):
         """Operator Executor"""
@@ -962,8 +1005,11 @@ class NRSRLoadOperator(BaseOperator):
             self.load_amendments()
         elif self.data_type == 'committee':
             self.load_committees()
+        elif self.data_type == 'committeeschedule':
+            self.load_committee_schedules()
         else:
             raise Exception("unknown data_type {}".format(self.data_type))
+
 
 class NRSRLoadPlugin(AirflowPlugin):
 
