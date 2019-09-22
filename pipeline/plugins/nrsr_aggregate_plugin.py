@@ -163,12 +163,14 @@ class NRSRAggregateOperator(BaseOperator):
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 2) AS voting_coalition_abstain,
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 3) AS voting_coalition_dnv,
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = 4) AS voting_coalition_absent,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS TRUE AND PVV.vote = -1) AS voting_coalition_invalid,
 
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 0) AS voting_opposition_for,
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 1) AS voting_opposition_against,
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 2) AS voting_opposition_abstain,
             COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 3) AS voting_opposition_dnv,
-            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 4) AS voting_opposition_absent
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = 4) AS voting_opposition_absent,
+            COUNT(PVV.id) FILTER (WHERE BILL.coalition IS FALSE AND PVV.vote = -1) AS voting_opposition_invalid
 
             FROM parliament_voting PV
             INNER JOIN parliament_votingvote PVV ON PVV.voting_id = PV.id
@@ -208,12 +210,14 @@ class NRSRAggregateOperator(BaseOperator):
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 2) AS voting_government_abstain,
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 3) AS voting_government_dnv,
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = 4) AS voting_government_absent,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 1 AND PVV.vote = -1) AS voting_government_invalid,
 
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 0) AS voting_committee_for,
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 1) AS voting_committee_against,
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 2) AS voting_committee_abstain,
             COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 3) AS voting_committee_dnv,
-            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 4) AS voting_committee_absent
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = 4) AS voting_committee_absent,
+            COUNT(PVV.id) FILTER (WHERE BILL.proposer_type = 2 AND PVV.vote = -1) AS voting_committee_invalid
 
             FROM parliament_voting PV
             INNER JOIN parliament_votingvote PVV ON PVV.voting_id = PV.id
@@ -372,21 +376,25 @@ class NRSRAggregateOperator(BaseOperator):
             'voting_coalition_abstain': 0,
             'voting_coalition_dnv': 0,
             'voting_coalition_absent': 0,
+            'voting_coalition_invalid': 0,
             'voting_opposition_for': 0,
             'voting_opposition_against': 0,
             'voting_opposition_abstain': 0,
             'voting_opposition_dnv': 0,
             'voting_opposition_absent': 0,
+            'voting_opposition_invalid': 0,
             'voting_government_for': 0,
             'voting_government_against': 0,
             'voting_government_abstain': 0,
             'voting_government_dnv': 0,
             'voting_government_absent': 0,
+            'voting_government_invalid': 0,
             'voting_committee_for': 0,
             'voting_committee_against': 0,
             'voting_committee_abstain': 0,
             'voting_committee_dnv': 0,
             'voting_committee_absent': 0,
+            'voting_committee_invalid': 0,
         }
 
         ##### club aggregates
