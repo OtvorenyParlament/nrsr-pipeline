@@ -921,17 +921,27 @@ class NRSRTransformOperator(BaseOperator):
             )
             row = pg_cursor.fetchone()
 
+            try:
+                dt_start = datetime.strptime('{} {}'.format(doc['date'], time_start),
+                                  '%d. %m. %Y %H:%M')
+            except ValueError:
+                dt_start = datetime.strptime('{} {}'.format(doc['date'], time_start),
+                                  '%d.%m.%Y %H:%M')
+
+            try:
+                dt_end = datetime.strptime('{} {}'.format(doc['date'], time_end),
+                                  '%d. %m. %Y %H:%M') if time_end else None
+            except ValueError:
+                dt_end = datetime.strptime('{} {}'.format(doc['date'], time_end),
+                                  '%d.%m.%Y %H:%M') if time_end else None
+
             new_doc = {
                 'type': doc['type'],
                 'period_num': doc['period_num'],
                 'place':
                 ''.join([x.strip() for x in doc['place']]),
-                'start':
-                datetime.strptime('{} {}'.format(doc['date'], time_start),
-                                  '%d. %m. %Y %H:%M'),
-                'end':
-                datetime.strptime('{} {}'.format(doc['date'], time_end),
-                                  '%d. %m. %Y %H:%M') if time_end else None,
+                'start': dt_start,
+                'end': dt_end,
                 'committee_id':
                 row[0]
             }
