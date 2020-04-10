@@ -24,7 +24,7 @@ default_args = {
 }
 
 DAILY = True
-PERIOD = 7
+PERIOD = 8
 POSTGRES_URL = Variable.get('postgres_url')
 MONGO_SETTINGS = Variable.get('mongo_settings', deserialize_json=True)
 SCRAPY_HOME = Variable.get('scrapy_home')
