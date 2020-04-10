@@ -866,6 +866,7 @@ class NRSRTransformOperator(BaseOperator):
             'predsedníčka': 0,
             'predseda': 1,
             'podpredsedníčka': 2,
+            'podpredsedkyňa': 2, # incorrect phrase promoted to nrsr.sk
             'podpredseda': 3,
             'členka': 4,
             'člen': 5,
