@@ -199,6 +199,10 @@ class NRSRTransformOperator(BaseOperator):
             # TODO: broken nrsr data workaround
             if new_doc['external_id'] == 1080:
                 new_doc['stood_for_party'] = 'OBYČAJNÍ ĽUDIA a nezávislé osobnosti (OĽANO), NOVA, Kresťanská únia (KÚ), ZMENA ZDOLA'
+            if new_doc['external_id'] == 874:
+                new_doc['stood_for_party'] = 'SMER – sociálna demokracia'
+            if new_doc['external_id'] == 966:
+                new_doc['stood_for_party'] = 'Sloboda a Solidarita'
             # new_doc['residence_id'] = residence_id
             new_docs.append(new_doc)
         if new_docs:
