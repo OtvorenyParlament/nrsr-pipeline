@@ -196,6 +196,9 @@ class NRSRTransformOperator(BaseOperator):
             #     raise Exception("residence_id for {} is None".format(new_doc))
 
             new_doc = self._get_wanted_keys(new_doc, wanted_keys)
+            # TODO: broken nrsr data workaround
+            if new_doc['external_id'] == 1080:
+                new_doc['stood_for_party'] = 'OBYČAJNÍ ĽUDIA a nezávislé osobnosti (OĽANO), NOVA, Kresťanská únia (KÚ), ZMENA ZDOLA'
             # new_doc['residence_id'] = residence_id
             new_docs.append(new_doc)
         if new_docs:
